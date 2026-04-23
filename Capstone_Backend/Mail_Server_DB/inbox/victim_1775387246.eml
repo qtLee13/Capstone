@@ -1,0 +1,45 @@
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+Subject: svn commit: r584297 - =?utf-8?q?/spamassassin/branches/bug-5293-plu?=
+ =?utf-8?q?ginized-bayes/lib/Mail/SpamAssassin/Plugin/DCC=2Epm?=
+From: jl@apache.org
+To: victim@company.com
+
+Author: jm
+Date: Fri Oct 12 15:14:57 2007
+New Revision: 584297
+
+URL: http://svn.apache.org/viewvc?rev=3D584297&view=3Drev
+Log:
+avoid trivial warning (probably not Bayes-related)
+
+Modified:
+    spamassassin/branches/bug-5293-pluginized-bayes/lib/Mail/SpamAssassin/Plu=
+gin/DCC.pm
+
+Modified: spamassassin/branches/bug-5293-pluginized-bayes/lib/Mail/SpamAssass=
+in/Plugin/DCC.pm
+URL: http://svn.apache.org/viewvc/spamassassin/branches/bug-5293-pluginized-b=
+ayes/lib/Mail/SpamAssassin/Plugin/DCC.pm?rev=3D584297&r1=3D584296&r2=3D584297=
+&view=3Ddiff
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=3D=
+=3D=3D=3D
+--- spamassassin/branches/bug-5293-pluginized-bayes/lib/Mail/SpamAssassin/Plu=
+gin/DCC.pm (original)
++++ spamassassin/branches/bug-5293-pluginized-bayes/lib/Mail/SpamAssassin/Plu=
+gin/DCC.pm Fri Oct 12 15:14:57 2007
+@@ -538,7 +538,7 @@
+     # note: not really tainted, this came from system configuration file
+     my $path =3D Mail::SpamAssassin::Util::untaint_file_path($self->{main}->=
+{conf}->{dcc_path});
+=20
+-    my @opts =3D split(' ',$self->{main}->{conf}->{dcc_options});
++    my @opts =3D split(' ',$self->{main}->{conf}->{dcc_options}||'');
+     untaint_var(\\@opts);
+=20
+     unshift(@opts, "-a",
+
+

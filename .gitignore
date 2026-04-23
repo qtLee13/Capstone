@@ -1,0 +1,16 @@
+node_modules/
+venv/
+env/
+__pycache__/
+.env
+*.csv
+*.pt
+*.h5
+*.db
+*.sqlite
+*.pkl
+*.bin
+*.zip
+dataset_emails.csv
+*.safetensors
+*.bin

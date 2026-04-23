@@ -1,0 +1,29 @@
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+MIME-Version: 1.0
+Subject: Re: where Can I get postfix 2.5.1 src rpm for RHEL5 / Centos5
+From: Simon J Mudd <bgxfhf@pobox.com>
+To: victim@company.com
+
+ffgvnj@newnanutilities.org ("Brian Collins") writes:
+
+> > I am trying to get a src rpm , so that I can build a RPM for all my
+> > CentOS boxes. But the latest src rpms available are all not higher than
+> > 2.4.6
+> > 
+> > Please send me links for 2.5 src rpms
+> 
+> Sorry - there are no SRPMs for 2.5 yet.  I know Simon has been very busy.
+> He'll get to it when he can.
+
+I've not seen until now any one show any interest for these. That's why
+I've not done anything. Yes I have less time now than before but if 
+people are interested perhaps they can let me know (off list) and I'll
+see if I can make time to get a 2.5 rpm available.
+
+I guess most people now just use the standard distribution rpms and
+are happy with those.
+
+Simon
+
+

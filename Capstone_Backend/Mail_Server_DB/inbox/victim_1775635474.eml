@@ -1,0 +1,27 @@
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+MIME-Version: 1.0
+Subject: Re: CPANPLUS failures on Windows
+From: "Jos I. Boumans" <hxh@dwim.org>
+To: victim@company.com
+
+
+On Nov 14, 2007, at 4:12 PM, Jan Dubois wrote:
+
+> I don't know if you need to retrieve the original file::// URL back
+> from the filename, but if you don't, then you could use an MD5 hash
+> of the URL to shorten it up.
+
+Unfortunately we do need the original URI back from the filename.
+
+If you have another suggestion, i'm all ears. For now i've set the
+tests to skip if the path is too long.
+
+Cheers,
+
+--
+	Jos Boumans
+
+	'Real programmers use "cat > a.out"'
+
+

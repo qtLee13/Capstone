@@ -1,0 +1,28 @@
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+Subject: Re: [Python-Dev] Decimal(unicode)
+From: "\\"Martin v. Löwis\\"" <qpnysl@v.loewis.de>
+To: victim@company.com
+
+> I'd call this a bug.  The change is an accident, a side-effect of the fact
+> that in 2.5.1 the coefficient (mantissa) of a Decimal was stored as a
+> tuple, and in 2.5.2 it's stored as a string (which greatly improves efficie=
+ncy).
+> Clearly in 2.5.2 the mantissa is being stored as a unicode instance in the
+> second case;  it should be explicitly coerced to str in Decimal.__new__.
+>=20
+> If others agree that it's a bug, I'll fix it.
+
+If people agree it's a bug, please do fix it.
+
+Regards,
+Martin
+_______________________________________________
+Python-Dev mailing list
+zvllln-eum@python.org
+http://mail.python.org/mailman/listinfo/python-dev
+Unsubscribe: http://mail.python.org/mailman/options/python-dev/python-dev%40t=
+angomu.com
+
+

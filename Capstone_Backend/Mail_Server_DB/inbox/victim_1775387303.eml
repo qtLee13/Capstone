@@ -1,0 +1,26 @@
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+MIME-Version: 1.0
+Subject: Re: [opensuse] du -shx issue/question
+From: Aaron Kulkis <cmiqlkx91@hotpop.com>
+To: victim@company.com
+
+Jim Cunning wrote:
+> On Thursday 07 February 2008 11:20:50 Greg Freemyer wrote:
+>> All,
+>>
+>> I'm running low on space on root, so I just ran cd /; du -shx *
+>>
+>> I was expecting the -x to cause my mount points to be ignored.  No
+>> such luck and I can see that since I explicitly am including /home
+>> etc. I'm going to get results for that.
+>>
+>> Anyone know a simple way to say "how big are the subdirectories on my
+>> root partition?"
+> I think "du -shx /" or "cd /; du -shx ." would do the job.
+
+
+both of those will only give the block-counts for the contents of /,
+but not the directories within /.
+
+
