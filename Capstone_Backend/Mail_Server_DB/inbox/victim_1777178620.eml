@@ -1,0 +1,19 @@
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+MIME-Version: 1.0
+Subject: Re: perldoc using fancy quotes
+From: Rafael Garcia-Suarez <pvhuhqgncrxnu@gmail.com>
+To: victim@company.com
+
+On 19 Nov 2007 22:07:23 +0100, Slaven Rezic  wrote:
+> May I ask the question if perldoc should still use nroff as the
+> default translator or if we should switch to just pod2text (the same
+> as perldoc -t does it already)? Sure, the pod2text output is not as
+> nice as the pod2man output (no bold text, no underline, no
+> hyphenation), but one is not dependent on the nroff oddities and the
+> nearly complete lack of Unicode support (other than latin1).
+
+Having been annoyed by nroff too in the past, I would think that's a
+good evolution for perldoc.
+
+

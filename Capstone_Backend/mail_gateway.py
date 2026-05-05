@@ -59,10 +59,10 @@ class MailGatewayHandler:
 
 if __name__ == '__main__':
     handler = MailGatewayHandler()
-    controller = Controller(handler, hostname='127.0.0.1', port=2525)
+    controller = Controller(handler, hostname='127.0.0.1', port=2526)
     
     print("[Mail Gateway] กำลังทำงาน...")
-    print("เปิดพอร์ตรอรับอีเมลที่ 127.0.0.1:2525")
+    print("เปิดพอร์ตรอรับอีเมลที่ 127.0.0.1:2526")
     # print("คิดถึงเด็กดื้อจังเลยยย <3")
     
     controller.start()

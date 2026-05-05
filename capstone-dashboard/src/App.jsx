@@ -33,15 +33,47 @@ function getScorePolicy(score) {
   return { label: 'Allow', color: '#15803d' }
 }
 
-function MiniBarChart({ data }) {
-  const max = Math.max(...data.total, 1)
+function MiniBarChart({ data, attackTypes }) {
+  const max = Math.max(...data.phishing, 1)
+  const typeColors = {
+    'Phishing': '#3b82f6',
+    'Business Email Compromise (BEC)': '#8b5cf6',
+    'Spear Phishing': '#f59e0b',
+    'Malware Attachment': '#ef4444'
+  }
+  
+  const getTotalByType = (types) => {
+    return types.reduce((sum, t) => sum + t.count, 0) || 1
+  }
+  
+  const typeProportions = attackTypes ? attackTypes.map(t => (t.count / getTotalByType(attackTypes))) : []
+  
   return (
     <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 80 }}>
       {data.labels.map((label, i) => (
         <div key={label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', height: 64, gap: 1 }}>
-            <div style={{ width: '100%', background: '#ef4444', opacity: 0.9, height: `${(data.phishing[i] / max) * 64}px`, borderRadius: '2px 2px 0 0', transition: 'height 0.6s ease' }} />
-            <div style={{ width: '100%', background: '#3b82f6', opacity: 0.4, height: `${((data.total[i] - data.phishing[i]) / max) * 64}px` }} />
+          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', height: 64, gap: 0 }}>
+            {attackTypes && attackTypes.length > 0 ? (
+              attackTypes.map((type, typeIdx) => {
+                const segmentHeight = (data.phishing[i] / max) * 64 * (typeProportions[typeIdx] || 0)
+                return (
+                  <div
+                    key={type.label}
+                    style={{
+                      width: '100%',
+                      background: type.color,
+                      opacity: 0.85,
+                      height: `${segmentHeight}px`,
+                      transition: 'height 0.6s ease',
+                      borderRadius: typeIdx === 0 ? '4px 4px 0 0' : typeIdx === attackTypes.length - 1 ? '0 0 4px 4px' : '0',
+                      boxShadow: '0 0 6px rgba(0,0,0,0.1)'
+                    }}
+                  />
+                )
+              })
+            ) : (
+              <div style={{ width: '100%', background: '#3b82f6', opacity: 0.9, height: `${(data.phishing[i] / max) * 64}px`, borderRadius: '4px', transition: 'height 0.6s ease', boxShadow: '0 0 8px rgba(59,130,246,0.3)' }} />
+            )}
           </div>
           <div style={{ fontSize: 9, color: '#6b7280', textAlign: 'center', whiteSpace: 'nowrap' }}>
             {label.replace('Mar ', 'M').replace('Apr ', 'A')}
@@ -276,30 +308,64 @@ export default function PhishingDashboard() {
         </div>
       </div>
 
-      {/* Volume + Risk distribution */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 14, marginBottom: 14 }}>
-        <div style={{ background: '#fff', border: '1px solid #f3f4f6', borderRadius: 14, padding: '20px 22px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <SectionHead>Email volume</SectionHead>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button onClick={() => setVolumeFilter('today')} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, border: volumeFilter === 'today' ? 'none' : '1px solid #d1d5db', background: volumeFilter === 'today' ? '#1e40af' : '#fff', color: volumeFilter === 'today' ? '#fff' : '#374151', borderRadius: 6, cursor: 'pointer' }}>Today</button>
-              <button onClick={() => setVolumeFilter('7days')} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, border: volumeFilter === '7days' ? 'none' : '1px solid #d1d5db', background: volumeFilter === '7days' ? '#1e40af' : '#fff', color: volumeFilter === '7days' ? '#fff' : '#374151', borderRadius: 6, cursor: 'pointer' }}>7 days</button>
-              <button onClick={() => setVolumeFilter('30days')} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, border: volumeFilter === '30days' ? 'none' : '1px solid #d1d5db', background: volumeFilter === '30days' ? '#1e40af' : '#fff', color: volumeFilter === '30days' ? '#fff' : '#374151', borderRadius: 6, cursor: 'pointer' }}>30 days</button>
+      {/* Email Volume - Full Width */}
+      <div style={{ background: 'linear-gradient(135deg, #fff 0%, #f8fafc 100%)', border: '1px solid #e2e8f0', borderRadius: 16, padding: '24px 28px', marginBottom: 20, boxShadow: '0 2px 8px rgba(15,23,42,0.04)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div>
+            <SectionHead>📊 Email Volume Timeline</SectionHead>
+            <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 0' }}>Real-time email traffic analysis with phishing detection</p>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setVolumeFilter('today')} style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, border: volumeFilter === 'today' ? 'none' : '1px solid #cbd5e1', background: volumeFilter === 'today' ? 'linear-gradient(135deg, #1e40af, #7c3aed)' : '#fff', color: volumeFilter === 'today' ? '#fff' : '#475569', borderRadius: 8, cursor: 'pointer', transition: 'all 0.3s ease', boxShadow: volumeFilter === 'today' ? '0 4px 12px rgba(30,64,175,0.2)' : 'none' }}>📅 Today</button>
+              <button onClick={() => setVolumeFilter('7days')} style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, border: volumeFilter === '7days' ? 'none' : '1px solid #cbd5e1', background: volumeFilter === '7days' ? 'linear-gradient(135deg, #1e40af, #7c3aed)' : '#fff', color: volumeFilter === '7days' ? '#fff' : '#475569', borderRadius: 8, cursor: 'pointer', transition: 'all 0.3s ease', boxShadow: volumeFilter === '7days' ? '0 4px 12px rgba(30,64,175,0.2)' : 'none' }}>📈 7 days</button>
+              <button onClick={() => setVolumeFilter('30days')} style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, border: volumeFilter === '30days' ? 'none' : '1px solid #cbd5e1', background: volumeFilter === '30days' ? 'linear-gradient(135deg, #1e40af, #7c3aed)' : '#fff', color: volumeFilter === '30days' ? '#fff' : '#475569', borderRadius: 8, cursor: 'pointer', transition: 'all 0.3s ease', boxShadow: volumeFilter === '30days' ? '0 4px 12px rgba(30,64,175,0.2)' : 'none' }}>📅 30 days</button>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 14, marginBottom: 10, fontSize: 12, color: '#6b7280' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 2, background: '#3b82f6', opacity: 0.5, display: 'inline-block' }} />Total</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 2, background: '#ef4444', display: 'inline-block' }} />Phishing</span>
+          
+          {/* Legend with Attack Types */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 14, padding: '12px 16px', background: '#f8fafc', borderRadius: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 12, height: 12, borderRadius: 2, background: '#3b82f6', boxShadow: '0 0 8px rgba(59,130,246,0.3)' }} />
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>Phishing</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 12, height: 12, borderRadius: 2, background: '#8b5cf6' }} />
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>BEC</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 12, height: 12, borderRadius: 2, background: '#f59e0b' }} />
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>Spear Phishing</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 12, height: 12, borderRadius: 2, background: '#ef4444' }} />
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>Malware</span>
+            </div>
           </div>
-          {volume.labels.length > 0
-            ? <MiniBarChart data={volume} />
-            : <div style={{ height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#d1d5db', fontSize: 13 }}>วิเคราะห์อีเมลก่อนเพื่อดูข้อมูล</div>}
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 12 }}>
-            <span style={{ color: '#9ca3af' }}>Total {volumeFilter === 'today' ? 'today' : volumeFilter === '7days' ? 'this week' : 'this month'}</span>
-            <span style={{ fontWeight: 700, color: '#111827' }}>{volume.total.reduce((a, b) => a + b, 0).toLocaleString()}</span>
-          </div>
-        </div>
 
+          {/* Chart */}
+          {volume.labels.length > 0
+            ? <div style={{ marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #e2e8f0' }}>
+                <MiniBarChart data={volume} attackTypes={attackTypes} />
+              </div>
+            : <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#cbd5e1', fontSize: 14, background: '#f8fafc', borderRadius: 10, marginBottom: 12 }}>
+                📊 Analyze emails to see data
+              </div>}
+
+          {/* Statistics Row - Attack Types */}
+          {attackTypes.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+              {attackTypes.map(type => (
+                <div key={type.label} style={{ background: '#f8fafc', border: `2px solid ${type.color}`, borderRadius: 10, padding: '12px 14px' }}>
+                  <div style={{ fontSize: 11, color: '#475569', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{type.label}</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: type.color, marginTop: 4 }}>{type.count}</div>
+                </div>
+              ))}
+            </div>
+          )}
+      </div>
+
+      {/* Volume + Attack types */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 14, marginBottom: 14 }}>
         <div style={{ background: '#fff', border: '1px solid #f3f4f6', borderRadius: 14, padding: '20px 22px' }}>
           <SectionHead>Attack types distribution</SectionHead>
           {attackTypes.length === 0

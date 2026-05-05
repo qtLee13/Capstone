@@ -1,0 +1,23 @@
+MIME-Version: 1.0
+Subject: HR Policy Update
+From: dalepruitt@example.com
+Reply-To: dalepruitt@example.com
+To: ceo@company.com
+Content-Type: multipart/mixed; boundary="===============8530161931403506701=="
+
+--===============8530161931403506701==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+Use of away that number political will. Suddenly statement through however in=
+formation let others. Brother sell democratic style identify wide.
+
+--===============8530161931403506701==
+Content-Type: application/octet-stream
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="confidential_document.pdf"
+MIME-Version: 1.0
+
+VGhpcyBpcyBhIHNpbXVsYXRlZCBwYXlsb2FkIGZvciB0ZXN0aW5nLg==
+
+--===============8530161931403506701==--

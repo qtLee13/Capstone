@@ -1,0 +1,42 @@
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+MIME-Version: 1.0
+Subject: Re: [patch@31780] fixes for cpanplus on VMS
+From: "Jos I. Boumans" <gwuc@cpan.org>
+To: victim@company.com
+
+
+On 03 Oct 2007, at 15:12, John E. Malmberg wrote:
+>>>
+>> In this case it's a single directory yes, but i've generalized it  
+>> to  'fix unsafe paths' on VMS.
+>> What would be the proper way to reconstruct the path after the  
+>> '/'  trick on VMS?
+>
+> File::Spec->catdir will put the path back together.
+>
+> The '/' trick only works if the string is a directory name with  
+> UNIX style directory delimiters or no directory delimiters.  It is  
+> to force vmsify to treat the input specification as UNIX.
+>
+> There is a VMS::Filespec::unixpath() to do the appending of the '/'  
+> to the specification, which will do a VMS::Filespec::vmsify() if  
+> needed.
+>
+> However it is not a good idea to call vmsify() on a pathname  
+> returned by unixify(), and it is not a good idea to call unixify()  
+> on a pathname returned by vmsify().  Because of the nature of the  
+> conversion, not all file specifications can make the round trip.
+>
+> I think that directory specifications can safely make the round  
+> trip, but not ones containing filenames.
+
+Thanks for explaining -- i've updated the code accordingly.
+
+--
+
+   Jos Boumans
+
+   How do I prove I'm not crazy to people who are?
+
+

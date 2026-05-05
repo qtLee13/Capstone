@@ -1,0 +1,57 @@
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+MIME-Version: 1.0
+Subject: [UAI] Keepaway learning testbed release
+From: Gregory Kuhlmann <rltgaaxc@cs.utexas.edu>
+To: victim@company.com
+
+*******************************************************
+* Please accept our apologies if you receive multiple *
+* copies of this message due to cross-posting.        *
+*******************************************************
+
+Hi all,
+
+I am pleased to announce the release of our Keepaway benchmark player
+framework source code for use with the 2D soccer server used at RoboCup.
+In case you are unfamiliar with it, the keepaway domain is a subtask of
+soccer in which a team of "keepers" tries to maintain possession of the
+ball within a small playing region, while the opposing team of "takers"
+tries to take the ball away.
+
+This domain has been used successfully in the past as a machine learning
+testbed.  See the following publications for more information:
+
+  Peter Stone, Richard S. Sutton, and Gregory Kuhlmann.
+  Scaling Reinforcement Learning toward RoboCup Soccer.
+  http://www.cs.utexas.edu/~kuhlmann/papers/b2hd-AB2004-scaling.html
+
+  Gregory Kuhlmann and Peter Stone.
+  Progress in Learning 3 vs. 2 Keepaway.
+  http://www.cs.utexas.edu/~kuhlmann/papers/b2hd-LNAI2003-keepaway.html
+
+Version 0.1 of the framework is available for download from our keepaway
+website:
+
+http://www.cs.utexas.edu/~AustinVilla/sim/keepaway/
+
+The package contains the source code for the Keepaway benchmark player
+framework and the source code for some keepaway utility programs.  The
+framework includes all low- and mid-level keepaway behaviors.  A few
+example high-level policies are included.  Not included is any learning
+code.  However, the framework was designed to make it easy to insert your
+own learning code.
+
+Also included on our page are two tutorials.  The first tutorial explains
+step-by-step how to install the players, run a simulation, and generate a
+graph of the learning curve. The second tutorial explains how to modify
+the players to include your own learning code.
+
+Please let us know if you have any questions.  Also, we would like to hear
+if and how you are using this code.
+
+Cheers,
+Greg Kuhlmann and
+Peter Stone
+
+
