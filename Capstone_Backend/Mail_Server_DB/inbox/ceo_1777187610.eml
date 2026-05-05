@@ -1,0 +1,23 @@
+MIME-Version: 1.0
+Subject: Action Required: Account Verification
+From: ksmith@example.com
+Reply-To: ksmith@example.com
+To: ceo@company.com
+Content-Type: multipart/mixed; boundary="===============7550307037357033557=="
+
+--===============7550307037357033557==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+Affect much record summer ask standard dinner protect. Woman think improve ed=
+ge pay yes. Fall effort in.
+
+--===============7550307037357033557==
+Content-Type: application/octet-stream
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="confidential_document.doc"
+MIME-Version: 1.0
+
+VGhpcyBpcyBhIHNpbXVsYXRlZCBwYXlsb2FkIGZvciB0ZXN0aW5nLg==
+
+--===============7550307037357033557==--
