@@ -1,0 +1,24 @@
+MIME-Version: 1.0
+Subject: Action Required: Review Your Compensation Statement
+From: hr-notice@legit-payroll.net
+Reply-To: hr-notice@legit-payroll.net
+To: victim@company.com
+Content-Type: multipart/mixed; boundary="===============0730556981983109717=="
+
+--===============0730556981983109717==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+URGENT ACTION REQUIRED:
+
+Please review the attached document immediately.
+
+--===============0730556981983109717==
+Content-Type: application/octet-stream
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="wire_transfer.vbs"
+MIME-Version: 1.0
+
+VGhpcyBpcyBhIHNpbXVsYXRlZCBtYWx3YXJlIHBheWxvYWQgZm9yIENhcHN0b25lIHRlc3Rpbmcu
+
+--===============0730556981983109717==--

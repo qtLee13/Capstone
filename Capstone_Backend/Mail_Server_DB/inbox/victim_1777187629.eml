@@ -1,0 +1,17 @@
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+Subject: Re: [opensuse] Mounting an vmware virtual disk in Linux.
+From: "Carlos E. R." <vyjwd.trpcau@telefonica.net>
+Reply-To: "Carlos E. R." <vyjwd.trpcau@telefonica.net>
+To: victim@company.com
+
+-----BEGIN PGP SIGNED MESSAGE----- Hash: SHA1 The Sunday 2008-02-17 at 19:11 =
+-0500, Aaron Kulkis wrote: >>  And wanting a kernel <=3D 2.4... Yicks! > > Co=
+pyright 1998 says it all. > Why don't you get a new version of this software?=
+ Because, believe it or not, it is the newest! I downloaded it the same day I=
+ posted, upgrading to 1.0.4 from 1.0.3: nimrodel:~ # rpm -q -f `which vmware-=
+config.pl` VMware-server-1.0.4-56528 - --  Cheers,         Carlos E. R. -----=
+BEGIN PGP SIGNATURE----- Version: GnuPG v2.0.4-svn0 (GNU/Linux) iD8DBQFHug1rt=
+TMYHG2NR9URAhz/AJ9AdHKFLrNCb67eHXHTNxx0ikK9xwCfffAe Jgaqse+E1HNMCUVz4v4f3Ew=
+=3D =3Dn2fJ -----END PGP SIGNATURE-----

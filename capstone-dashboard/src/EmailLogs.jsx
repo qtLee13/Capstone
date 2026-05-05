@@ -81,6 +81,11 @@ function DetailModal({ email, onClose, isDarkMode = false }) {
             <div style={{ fontSize: 13, color: darkStyles.text }}>{formatDate(email.timestamp)} {formatTime(email.timestamp)}</div>
           </div>
 
+          <div style={{ background: darkStyles.input, borderRadius: 8, padding: 12, marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: darkStyles.textSecondary, fontWeight: 600, marginBottom: 4 }}>ATTACK TYPE</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: darkStyles.text, marginBottom: 10 }}>{email.attack_type || 'Unknown'}</div>
+          </div>
+
           <div style={{ background: darkStyles.input, borderRadius: 8, padding: 12 }}>
             <div style={{ fontSize: 11, color: darkStyles.textSecondary, fontWeight: 600, marginBottom: 8 }}>RISK COMPONENTS</div>
             <div style={{ display: 'grid', gap: 6, fontSize: 12, color: darkStyles.text }}>
@@ -257,7 +262,33 @@ export default function EmailLogs({ isDarkMode = false }) {
             <p style={{ fontSize: 14, margin: 0 }}>{emails.length === 0 ? 'ยังไม่มีอีเมลเข้ามา' : 'ไม่พบผลลัพธ์'}</p>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
+          <div style={{ overflowX: 'auto', maxHeight: '600px', overflowY: 'auto', position: 'relative' }}>
+            <style>{`
+              table tbody tr:hover {
+                background-color: ${isDarkMode ? '#374151' : '#f8fafc'};
+                transition: background-color 0.2s ease;
+              }
+              table thead th {
+                position: sticky;
+                top: 0;
+                z-index: 10;
+              }
+              ::-webkit-scrollbar {
+                width: 8px;
+                height: 8px;
+              }
+              ::-webkit-scrollbar-track {
+                background: ${isDarkMode ? '#1f2937' : '#f9fafb'};
+                border-radius: 4px;
+              }
+              ::-webkit-scrollbar-thumb {
+                background: ${isDarkMode ? '#4b5563' : '#cbd5e1'};
+                border-radius: 4px;
+              }
+              ::-webkit-scrollbar-thumb:hover {
+                background: ${isDarkMode ? '#6b7280' : '#94a3b8'};
+              }
+            `}</style>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: darkStyles.input, borderBottom: `1px solid ${darkStyles.border}` }}>
@@ -265,6 +296,7 @@ export default function EmailLogs({ isDarkMode = false }) {
                   <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 12, fontWeight: 600, color: darkStyles.textSecondary, textTransform: 'uppercase' }}>From</th>
                   <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 12, fontWeight: 600, color: darkStyles.textSecondary, textTransform: 'uppercase' }}>To</th>
                   <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 12, fontWeight: 600, color: darkStyles.textSecondary, textTransform: 'uppercase' }}>Subject</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 12, fontWeight: 600, color: darkStyles.textSecondary, textTransform: 'uppercase' }}>Attack Type</th>
                   <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 12, fontWeight: 600, color: darkStyles.textSecondary, textTransform: 'uppercase' }}>Status</th>
                   <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: 12, fontWeight: 600, color: darkStyles.textSecondary, textTransform: 'uppercase' }}>Action</th>
                 </tr>
@@ -272,12 +304,25 @@ export default function EmailLogs({ isDarkMode = false }) {
               <tbody>
                 {paginatedEmails.map((email, idx) => {
                   const status = getStatusBadge(email.final_score)
+                  const attackTypeColors = {
+                    'Malware Attachment': { bg: '#fef2f2', color: '#b91c1c' },
+                    'Business Email Compromise (BEC)': { bg: '#f3e8ff', color: '#7c3aed' },
+                    'Spear Phishing': { bg: '#fffbeb', color: '#b45309' },
+                    'Phishing': { bg: '#dbeafe', color: '#1e40af' },
+                    'Normal': { bg: '#f0fdf4', color: '#15803d' }
+                  }
+                  const attackTypeStyle = attackTypeColors[email.attack_type] || attackTypeColors['Normal']
                   return (
                     <tr key={idx} style={{ borderBottom: idx < paginatedEmails.length - 1 ? `1px solid ${darkStyles.border}` : 'none', transition: 'all 0.2s ease' }}>
                       <td style={{ padding: '12px 16px', fontSize: 12, color: darkStyles.text, whiteSpace: 'nowrap' }}>{formatTime(email.timestamp)}</td>
                       <td style={{ padding: '12px 16px', fontSize: 12, color: darkStyles.text, fontFamily: 'monospace', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={email.sender_domain}>{email.sender_domain || 'N/A'}</td>
                       <td style={{ padding: '12px 16px', fontSize: 12, color: darkStyles.text, fontFamily: 'monospace', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={email.recipient}>{email.recipient || 'N/A'}</td>
                       <td style={{ padding: '12px 16px', fontSize: 12, color: darkStyles.text, maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={email.subject}>{email.subject || 'No Subject'}</td>
+                      <td style={{ padding: '12px 16px', fontSize: 12 }}>
+                        <span style={{ display: 'inline-block', padding: '5px 12px', borderRadius: 12, background: attackTypeStyle.bg, color: attackTypeStyle.color, fontWeight: 700, fontSize: 11, whiteSpace: 'nowrap' }} title={email.attack_type}>
+                          {email.attack_type || 'Unknown'}
+                        </span>
+                      </td>
                       <td style={{ padding: '12px 16px', fontSize: 12 }}>
                         <span style={{ display: 'inline-block', padding: '4px 10px', borderRadius: 12, background: status.bg, color: status.color, fontWeight: 600, fontSize: 11 }}>
                           {status.label}

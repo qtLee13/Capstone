@@ -329,8 +329,17 @@ def categorize_attack(features, link_risk_score, ai_score, recipient, final_scor
 
     if is_high_value_target and (link_risk_score > 0 or ai_score > 60):
         return "Spear Phishing"
+    
+    # 4. Spam Domain Check (เพิ่มการตรวจสอบ TLD ที่มีความเสี่ยงสูง)
+    sender_tld = features["sender_domain"].split('.')[-1].lower()
+    if sender_tld in ['top', 'xyz', 'shop', 'cn', 'ru', 'lat', 'click', 'tk']:
+        return "Spam (High-Risk TLD)"
 
+<<<<<<< HEAD
     # 4. General Phishing
+=======
+    # 5. Phishing ทั่วไป
+>>>>>>> 7665009a6365172bd5e5a052a2a9d3c7a4491286
     return "Phishing"
 
 
@@ -376,6 +385,7 @@ def analyze_email(request: EmailRequest, db: Session = Depends(get_db)):
         reply_to_mismatch=features.get("reply_to_mismatch", False),
         sender_spoofing=features.get("sender_spoofing", False),
 
+<<<<<<< HEAD
         attachment_type=features.get("attachment_type", []),
 
         raw_ai_score=raw_ai_score,
@@ -383,6 +393,33 @@ def analyze_email(request: EmailRequest, db: Session = Depends(get_db)):
 
         subject=parsed["Subject"],
         body_text=parsed["Body"],
+=======
+    # เช็คว่ามีไฟล์แนบอันตรายหรือไม่
+    dangerous_exts = ['.exe', '.bat', '.scr', '.vbs', '.js', '.jar', '.zip']
+    has_malware_attachment = any(ext in dangerous_exts for ext in features["attachment_type"])
+
+    # 💥 ใหม่! สกัด TLD และเช็คโดเมนเสี่ยง 💥
+    sender_tld = features["sender_domain"].split('.')[-1].lower()
+    high_risk_tlds = ['top', 'xyz', 'shop', 'cn', 'ru', 'lat', 'click', 'tk']
+    is_high_risk_tld = sender_tld in high_risk_tlds
+
+    # กฎเหล็กที่ 1: VirusTotal จับมัลแวร์ได้ บังคับ Block
+    if raw_link_score == 100 or has_malware_attachment:
+        final_score = 100
+
+    # 💥 กฎเหล็กที่ 2: ป้องกัน BEC (ปลอมตัวเป็นคนใน) 💥
+    # ถ้าตรวจพบการแอบเปลี่ยนอีเมลตอบกลับ (Mismatch) บังคับกักกัน (Quarantine) ทันที!
+    elif features["reply_to_mismatch"]:
+        final_score = max(final_score, 65) 
+
+    # กฎเหล็กที่ 3: ถ้า AI มั่นใจมาก (> 75%) ให้ Quarantine
+    elif raw_ai_score >= 75:
+        final_score = max(final_score, 65) 
+
+    # กฎเหล็กที่ 4: ถ้า AI ค่อนข้างมั่นใจ (> 50%) ให้ Warning
+    elif raw_ai_score >= 50:
+        final_score = max(final_score, 40)
+>>>>>>> 7665009a6365172bd5e5a052a2a9d3c7a4491286
 
         extra_features=features
     )
