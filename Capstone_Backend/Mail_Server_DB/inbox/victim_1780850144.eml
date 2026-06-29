@@ -1,0 +1,50 @@
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+Subject: Re: [Py2exe-users] Overriding the message box that pops up for
+	unhandled exception
+From: Thomas Heller <tazezsn@ctypes.org>
+Reply-To: Thomas Heller <tazezsn@ctypes.org>
+To: victim@company.com
+
+geoff schrieb:
+> We have a wx.app that is packaged and distrubuted using py2exe and we
+> are trying to work thru our error/exception handling.
+>=20
+> In reviewing the boot_common.py there is a call to sys._MessageBo that
+> displays the final message box advising the user of the entry to the
+> app_exe.log file.    Is there any "simple" way to over-ride this ?
+>=20
+> We would like to give the users a little more description of the error
+> and perhaps an "email support" button so we can take action.
+>=20
+> We tried doing this within wx - but once the exception gets raised, wx
+> shuts down the event loop and our "user friendly" message box gets
+> closed.
+>=20
+> Any advice/guidance/direction would be appreciated.
+
+The code in boot_common.py is simply executed before your script starts.
+So, in the main script you can, for example, replace sys.stderr (maybe also s=
+ys.stdout)
+with your own code that can do whatever you want.  This would then completely
+disable the stuff that boot_common.py does when something is printed.
+
+Of course you can also hack around in boot_common.py...
+
+There may also be other mechanisms in wx, but I don't use wx so I cannot help=
+ with this.
+
+Thomas
+
+
+-------------------------------------------------------------------------
+This SF.net email is sponsored by: Microsoft
+Defy all challenges. Microsoft(R) Visual Studio 2008.
+http://clk.atdmt.com/MRT/go/vse0120000070mrt/direct/01/
+_______________________________________________
+Py2exe-users mailing list
+zi9rpy-fcecq@lists.sourceforge.net
+https://lists.sourceforge.net/lists/listinfo/py2exe-users
+
+

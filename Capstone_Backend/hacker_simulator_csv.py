@@ -6,12 +6,12 @@ from email.message import EmailMessage
 
 # ================= 1. ตั้งค่า Dataset =================
 DATASETS_CONFIG = {
-    "CEAS_08.csv": {"safe": 0, "phish": 1},
+    "CEAS_08.csv": {"safe": 2, "phish": 2},
     "spear_phishing_dataset.csv": {"safe": 0, "phish": 0}, # spear phishing 
     "synthetic_emails_poisoned.csv": {"safe": 0, "phish": 0}, # bec (ไม่มี safe)
     "proofpoint_email.csv": {"safe": 0, "phish": 0}, # malware attachment
     "good_emails_all.csv": {"safe": 0, "phish": 0},
-    "spam_emails_all.csv": {"safe": 0, "phish": 2}
+    "spam_emails_all.csv": {"safe": 0, "phish": 0}
 }
 
 # ================= 2. ฟังก์ชันจัดฟอร์แมตข้อมูล (Normalize) =================
@@ -248,4 +248,4 @@ if __name__ == '__main__':
             print("                       ", end='\r') 
             
     print("\n" + "=" * 60)
-    print("🎉 ยิง Dataset ทดสอบเสร็จสมบูรณ์!")
+    print("ยิง Dataset ทดสอบเสร็จสมบูรณ์!")
