@@ -1,0 +1,36 @@
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+MIME-Version: 1.0
+Subject: Re: [Python-Dev] Change in priority fields
+From: Nick Coghlan <uytankmf@gmail.com>
+Reply-To: Nick Coghlan <uytankmf@gmail.com>
+To: victim@company.com
+
+Guido van Rossum wrote:
+> On Mon, Mar 17, 2008 at 11:49 PM, Barry Warsaw  wrote:
+>>  We should not release the finals until there are no release blockers
+>>  or criticals.  Either the critical gets moved to high and ignored, or
+>>  it gets moved to release blocker and gets fixed.
+> 
+> Hm... This feels a bit like inflation of priorities to me; there would
+> be lots of critical bugs and quite a few release blockers... The
+> highest priority just pertains to the upcoming release which could be
+> weeks in the future. I'd be more comfortable if there were 1-2
+> priorities above that, e.g. one higher for stuff that makes a buildbot
+> go red (i.e. breaks a test) and two higher for stuff that affects most
+> developers (e.g. stuff checked in that doesn't even build).
+
+It would be good if someone at the sprints could take the PEP 3 redraft 
+I posted a few weeks back, update it with whatever you all come up with 
+in relation to tracker management and check it in.
+
+(Attaching that draft here so people don't have to go trawling through 
+email archives for it)
+
+Cheers,
+Nick.
+
+-- 
+Nick Coghlan   |   uytankmf@gmail.com   |   Brisbane, Australia
+---------------------------------------------------------------
+             http://www.boredomandlaziness.org

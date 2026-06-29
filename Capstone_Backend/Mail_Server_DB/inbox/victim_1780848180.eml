@@ -1,0 +1,18 @@
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+MIME-Version: 1.0
+Subject: [opensuse] How can the common users use VirtualBox's USB device?
+From: Kermit Mei <pepetj.ldc@gmail.com>
+Reply-To: Kermit Mei <pepetj.ldc@gmail.com>
+To: victim@company.com
+
+Hello,community.I'm a newer.
+I installed VirtualBox1.54 in openSuse 10.3. If I run it as root,
+everything is ok. But, if as the common users, I can't use the USB
+device in virtual machine. Which device's property must be chmod?
+By the way, my main usb device is a printer.
+
+Thanks.
+Kermit
+
+
