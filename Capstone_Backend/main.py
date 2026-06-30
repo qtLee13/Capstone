@@ -23,8 +23,13 @@ import torch
 import torch.nn.functional as F
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
+# ================= Risk Scoring Engine =================
+from risk_scoring import RiskScoringEngine, RiskInput
+from risk_scoring.risk_config import DANGEROUS_ATTACHMENTS
+
 # ================= FastAPI Initialization =================
 app = FastAPI()
+risk_engine = RiskScoringEngine()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -155,9 +160,24 @@ def parse_raw_email(raw_content: str):
         "Attachments": attachments,
     }
 
+KNOWN_BRAND_KEYWORDS = [
+    "paypal", "microsoft", "apple", "amazon", "google", "bank",
+    "ceo", "cfo", "director", "it support", "helpdesk", "admin",
+]
+
+def detect_display_name_spoofing(sender_header: str, sender_domain: str) -> bool:
+    """ตรวจ Display Name ที่อ้างเป็นแบรนด์/ผู้บริหาร แต่โดเมนจริงไม่ตรงกับแบรนด์นั้น"""
+    match = re.match(r'^"?([^"<]*)"?\s*<', sender_header or "")
+    display_name = (match.group(1) if match else "").strip().lower()
+    if not display_name:
+        return False
+    sender_domain = (sender_domain or "").lower()
+    return any(brand in display_name and brand not in sender_domain for brand in KNOWN_BRAND_KEYWORDS)
+
 def extract_features(parsed_data):
     features = {}
     sender_email = re.search(r'[\w\.-]+@[\w\.-]+', parsed_data["Sender"])
+    features["sender_email"] = sender_email.group(0) if sender_email else "unknown"
     features["sender_domain"] = sender_email.group(0).split('@')[1] if sender_email else "unknown"
 
     if parsed_data["Reply_To"]:
@@ -167,6 +187,7 @@ def extract_features(parsed_data):
     else:
         features["reply_to_mismatch"] = False
 
+    features["sender_spoofing"] = detect_display_name_spoofing(parsed_data["Sender"], features["sender_domain"])
     features["attachment_type"] = [os.path.splitext(f)[1].lower() for f in parsed_data["Attachments"]]
     return features
 
@@ -369,7 +390,7 @@ def analyze_email(request: EmailRequest, db: Session = Depends(get_db)):
             outputs = model(**inputs)
             raw_ai_score = F.softmax(outputs.logits, dim=1)[0][1].item() * 100
 
-        has_malware = any(ext in ['.exe', '.vbs', '.zip', '.scr'] for ext in features["attachment_type"])
+        has_malware = any(ext in DANGEROUS_ATTACHMENTS for ext in features["attachment_type"])
         
         if raw_ai_score < 30 and not has_malware:
             safe_resp = {"summary": {"final_risk_score": round(raw_ai_score, 2), "risk_level": "🟢 Allow", "action_color": "#2f855a", "attack_type": "Normal"}, "details": {"message": "Safe"}}
@@ -388,29 +409,53 @@ def analyze_email(request: EmailRequest, db: Session = Depends(get_db)):
         attachment_risk_flag = 1 if has_malware else 0
         attack_type = stage2_xgboost_predict([raw_ai_score, raw_link_score, ipqs_score, dmarc_fail_flag, attachment_risk_flag])
 
-        # 3. รวมคะแนน
-        final_score = (raw_ai_score * 0.40) + (raw_link_score * 0.30) + float(auth_results["penalty"])
-        if features["reply_to_mismatch"]: final_score += 10.0
-        if raw_link_score == 100 or has_malware: final_score = 100
-        elif features["reply_to_mismatch"] or auth_results["dmarc"] == "fail" or ipqs_score > 80: final_score = max(final_score, 65) 
-
-        final_score = min(max(final_score, 0), 100)
-
-        if final_score >= 80:   display_level, action_color = "🔴 Block", "#c53030"
-        elif final_score >= 60: display_level, action_color = "🟠 Quarantine", "#dd6b20"
-        elif final_score >= 30: display_level, action_color = "🟡 Warning", "#d69e2e"
-        else:                   display_level, action_color = "🟢 Allow", "#2f855a"
+        # 3. Risk Scoring Engine: Domain + Link + AI + Header + Attachment + Language -> Risk Score เดียว
+        risk_input = RiskInput(
+            sender_domain=sender_domain,
+            sender_email=features.get("sender_email", "unknown"),
+            recipient=request.recipient,
+            spf_result="none",
+            dkim_result="none",
+            dmarc_result=auth_results["dmarc"],
+            reply_to_mismatch=features["reply_to_mismatch"],
+            sender_spoofing=features.get("sender_spoofing", False),
+            attachment_type=features["attachment_type"],
+            raw_ai_score=raw_ai_score,
+            raw_link_score=raw_link_score,
+            ipqs_score=ipqs_score,
+            subject=parsed["Subject"],
+            body_text=parsed["Body"],
+        )
+        risk_result = risk_engine.calculate(risk_input)
+        final_score = risk_result.final_score
+        display_level = risk_result.display_level
+        action_color = risk_result.action_color
 
         final_result_json = {
             "summary": {"final_risk_score": round(final_score, 2), "risk_level": display_level, "action_color": action_color, "attack_type": attack_type},
-            "details": {"ai_score": round(raw_ai_score, 2), "link_risk": round(raw_link_score, 2), "ipqs_score": ipqs_score, "dmarc_status": auth_results["dmarc"], "detected_links": bad_links}
+            "details": {
+                "ai_score": risk_result.components["ai_score"],
+                "link_risk": risk_result.components["link_risk"],
+                "domain_risk": risk_result.components["domain_risk"],
+                "header_anomaly": risk_result.components["header_anomaly"],
+                "attachment_risk": risk_result.components["attachment_risk"],
+                "language_risk": risk_result.components["language_risk"],
+                "ipqs_score": ipqs_score,
+                "dmarc_status": auth_results["dmarc"],
+                "detected_links": bad_links,
+                "reasons": risk_result.reasons,
+            }
         }
 
         # 💾 บันทึกลง DB เฉพาะตัวแรกตัวเดียว!
         db.add(EmailLog(
             sender_domain=sender_domain, recipient=request.recipient, subject=parsed["Subject"],
-            final_score=round(final_score, 2), ai_score=round(raw_ai_score, 2), link_risk=round(raw_link_score, 2),
-            risk_level=display_level.split(" ")[1].lower(), is_phishing=final_score>=30, attack_type=attack_type 
+            final_score=round(final_score, 2),
+            ai_score=risk_result.components["ai_score"],
+            link_risk=risk_result.components["link_risk"],
+            domain_risk=risk_result.components["domain_risk"],
+            header_anomaly=risk_result.components["header_anomaly"],
+            risk_level=risk_result.action, is_phishing=final_score>=30, attack_type=attack_type
         ))
         db.commit()
         print(f"💾 [L2 DB INSERT] บันทึก 'เมล์ใหม่' ลงฐานข้อมูลสำเร็จ (Hash: {email_hash[:8]})")
