@@ -32,6 +32,7 @@ class RiskInput:
 
     raw_ai_score: float = 0.0
     raw_link_score: float = 0.0
+    ipqs_score: float = 0.0
 
     subject: str = ""
     body_text: str = ""

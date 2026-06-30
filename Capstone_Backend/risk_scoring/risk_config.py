@@ -12,12 +12,12 @@ Risk Scoring Configuration
 # รวมคะแนนเต็ม 100
 # =========================
 
-AI_WEIGHT = 0.35              # AI confidence สูงสุด 35 คะแนน
-LINK_WEIGHT = 0.25            # Link risk สูงสุด 25 คะแนน
-DOMAIN_MAX_SCORE = 15         # SPF / DKIM / DMARC สูงสุด 15 คะแนน
-HEADER_MAX_SCORE = 10         # Reply-To mismatch / spoofing สูงสุด 10 คะแนน
-ATTACHMENT_MAX_SCORE = 10     # ไฟล์แนบอันตราย สูงสุด 10 คะแนน
-LANGUAGE_MAX_SCORE = 5        # ภาษาเชิง social engineering สูงสุด 5 คะแนน
+AI_WEIGHT = 0.20               # AI confidence สูงสุด 20 คะแนน
+LINK_WEIGHT = 0.20             # Link risk สูงสุด 20 คะแนน
+DOMAIN_MAX_SCORE = 20          # SPF / DKIM / DMARC / IPQS สูงสุด 20 คะแนน
+HEADER_MAX_SCORE = 15          # Reply-To mismatch / spoofing สูงสุด 15 คะแนน
+ATTACHMENT_MAX_SCORE = 15      # ไฟล์แนบอันตราย สูงสุด 15 คะแนน
+LANGUAGE_MAX_SCORE = 10        # ภาษาเชิง social engineering สูงสุด 10 คะแนน
 
 # =========================
 # Risk Thresholds

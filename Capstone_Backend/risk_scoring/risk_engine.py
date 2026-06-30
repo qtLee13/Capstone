@@ -168,6 +168,11 @@ class RiskScoringEngine:
             reasons.append("DMARC authentication failed")
             flags["auth_failed"] = True
 
+        ipqs_score = self._clamp(risk_input.ipqs_score)
+        if ipqs_score >= 50:
+            score += ipqs_score * 0.10
+            reasons.append(f"Sender IP has poor reputation (IPQS fraud score {ipqs_score:.0f})")
+
         score = min(score, DOMAIN_MAX_SCORE)
 
         return score, reasons, flags
@@ -249,9 +254,9 @@ class RiskScoringEngine:
             final_score = max(final_score, 85)
             reasons.append("Security override applied: malicious link indicator")
 
-        if flags.get("dangerous_attachment") and flags.get("ai_suspicious"):
+        if flags.get("dangerous_attachment"):
             final_score = max(final_score, 80)
-            reasons.append("Security override applied: dangerous attachment with AI suspicion")
+            reasons.append("Security override applied: dangerous attachment type")
 
         if flags.get("spoofing_detected") and flags.get("auth_failed"):
             final_score = max(final_score, 65)
@@ -260,6 +265,10 @@ class RiskScoringEngine:
         if risk_input.raw_ai_score >= AI_HIGH_CONFIDENCE:
             final_score = max(final_score, 65)
             reasons.append("Security override applied: high AI confidence")
+
+        if self._clamp(risk_input.ipqs_score) > 80:
+            final_score = max(final_score, 65)
+            reasons.append("Security override applied: sender IP flagged as high fraud risk (IPQS)")
 
         return final_score, reasons
 
