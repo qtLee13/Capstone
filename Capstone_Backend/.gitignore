@@ -1,0 +1,4 @@
+venv/
+__pycache__/
+Mail_Server_DB/
+.env
