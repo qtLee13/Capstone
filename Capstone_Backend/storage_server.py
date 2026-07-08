@@ -323,6 +323,70 @@ def get_email_logs(db: Session = Depends(get_db)):
     return {"status": "success", "data": logs}
 
 
+# ================= 📬 Mail Server: เก็บอีเมลจริงที่ Gateway ส่งมอบ =================
+MAIL_STORE_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Mail_Server_DB")
+MAIL_FOLDERS = {"inbox", "quarantine"}
+
+
+class DeliverRequest(BaseModel):
+    recipient: str
+    sender: str = ""
+    subject: str = ""
+    folder: str = "inbox"        # "inbox" | "quarantine"
+    raw_email: str               # เนื้ออีเมลดิบทั้งฉบับ (.eml)
+
+
+def _safe_name(value: str) -> str:
+    keep = "".join(c if c.isalnum() or c in "._-" else "_" for c in value)
+    return keep.strip("._") or "unknown"
+
+
+@app.post("/deliver", dependencies=[Depends(verify_api_key)])
+def deliver_mail(request: DeliverRequest):
+    if request.folder not in MAIL_FOLDERS:
+        raise HTTPException(status_code=422, detail=f"folder must be one of {sorted(MAIL_FOLDERS)}")
+
+    user = _safe_name(request.recipient.split("@")[0].lower())
+    folder_path = os.path.join(MAIL_STORE_ROOT, request.folder)
+    os.makedirs(folder_path, exist_ok=True)
+
+    filename = f"{user}_{datetime.utcnow().strftime('%Y%m%dT%H%M%S%f')}.eml"
+    with open(os.path.join(folder_path, filename), "w", encoding="utf-8") as f:
+        f.write(request.raw_email)
+
+    return {"status": "delivered", "folder": request.folder, "filename": filename}
+
+
+@app.get("/mailbox/{folder}", dependencies=[Depends(verify_api_key)])
+def list_mailbox(folder: str, user: str = ""):
+    if folder not in MAIL_FOLDERS:
+        raise HTTPException(status_code=404, detail=f"folder must be one of {sorted(MAIL_FOLDERS)}")
+
+    folder_path = os.path.join(MAIL_STORE_ROOT, folder)
+    if not os.path.isdir(folder_path):
+        return {"status": "success", "folder": folder, "count": 0, "messages": []}
+
+    prefix = _safe_name(user.split("@")[0].lower()) + "_" if user else ""
+    messages = sorted(
+        (f for f in os.listdir(folder_path) if f.endswith(".eml") and f.startswith(prefix)),
+        reverse=True,
+    )
+    return {"status": "success", "folder": folder, "count": len(messages), "messages": messages}
+
+
+@app.get("/mailbox/{folder}/{filename}", dependencies=[Depends(verify_api_key)])
+def read_mail(folder: str, filename: str):
+    if folder not in MAIL_FOLDERS or _safe_name(filename) != filename:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    path = os.path.join(MAIL_STORE_ROOT, folder, filename)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    with open(path, encoding="utf-8") as f:
+        return {"status": "success", "folder": folder, "filename": filename, "raw_email": f.read()}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

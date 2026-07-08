@@ -1,0 +1,15 @@
+[Unit]
+Description=Capstone Storage/Risk Scoring Server (FastAPI, port 8000)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=capstone
+WorkingDirectory=/home/capstone/Capstone/Capstone_Backend
+ExecStart=/home/capstone/Capstone/Capstone_Backend/venv/bin/python -u storage_server.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
