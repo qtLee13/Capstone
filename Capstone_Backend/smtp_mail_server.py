@@ -14,20 +14,15 @@ Gateway บอกผลการกรองผ่าน header "X-Risk-Action":
 """
 import os
 import time
-from datetime import datetime
 from email import message_from_bytes
 from email.policy import default as default_policy
 
 from aiosmtpd.controller import Controller
 
-MAIL_STORE_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Mail_Server_DB")
+from mail_store import deliver
+
 SMTP_HOST = os.getenv("SMTP_HOST", "0.0.0.0")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "25"))
-
-
-def _safe_name(value: str) -> str:
-    keep = "".join(c if c.isalnum() or c in "._-" else "_" for c in value)
-    return keep.strip("._") or "unknown"
 
 
 class MailServerHandler:
@@ -36,16 +31,10 @@ class MailServerHandler:
         action = (msg.get("X-Risk-Action") or "").lower()
         folder = "quarantine" if "quarantine" in action else "inbox"
 
-        folder_path = os.path.join(MAIL_STORE_ROOT, folder)
-        os.makedirs(folder_path, exist_ok=True)
-
-        saved = []
-        for rcpt in envelope.rcpt_tos or ["unknown@corp.com"]:
-            user = _safe_name(rcpt.split("@")[0].lower())
-            filename = f"{user}_{datetime.utcnow().strftime('%Y%m%dT%H%M%S%f')}.eml"
-            with open(os.path.join(folder_path, filename), "wb") as f:
-                f.write(envelope.content)
-            saved.append(filename)
+        saved = [
+            deliver(folder, rcpt, envelope.content)
+            for rcpt in envelope.rcpt_tos or ["unknown@corp.com"]
+        ]
 
         print(f"[{time.strftime('%X')}] 📬 SMTP รับเมล {envelope.mail_from} -> {envelope.rcpt_tos} | {folder} | {saved}")
         return "250 Message accepted for delivery"

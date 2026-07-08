@@ -324,8 +324,7 @@ def get_email_logs(db: Session = Depends(get_db)):
 
 
 # ================= 📬 Mail Server: เก็บอีเมลจริงที่ Gateway ส่งมอบ =================
-MAIL_STORE_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Mail_Server_DB")
-MAIL_FOLDERS = {"inbox", "quarantine"}
+from mail_store import MAIL_STORE_ROOT, MAIL_FOLDERS, deliver as store_deliver, store_maildir, safe_name as _safe_name
 
 
 class DeliverRequest(BaseModel):
@@ -336,24 +335,12 @@ class DeliverRequest(BaseModel):
     raw_email: str               # เนื้ออีเมลดิบทั้งฉบับ (.eml)
 
 
-def _safe_name(value: str) -> str:
-    keep = "".join(c if c.isalnum() or c in "._-" else "_" for c in value)
-    return keep.strip("._") or "unknown"
-
-
 @app.post("/deliver", dependencies=[Depends(verify_api_key)])
 def deliver_mail(request: DeliverRequest):
     if request.folder not in MAIL_FOLDERS:
         raise HTTPException(status_code=422, detail=f"folder must be one of {sorted(MAIL_FOLDERS)}")
 
-    user = _safe_name(request.recipient.split("@")[0].lower())
-    folder_path = os.path.join(MAIL_STORE_ROOT, request.folder)
-    os.makedirs(folder_path, exist_ok=True)
-
-    filename = f"{user}_{datetime.utcnow().strftime('%Y%m%dT%H%M%S%f')}.eml"
-    with open(os.path.join(folder_path, filename), "w", encoding="utf-8") as f:
-        f.write(request.raw_email)
-
+    filename = store_deliver(request.folder, request.recipient, request.raw_email.encode("utf-8"))
     return {"status": "delivered", "folder": request.folder, "filename": filename}
 
 
@@ -387,6 +374,11 @@ def release_from_quarantine(filename: str, log_id: int = 0, db: Session = Depend
     inbox_path = os.path.join(MAIL_STORE_ROOT, "inbox")
     os.makedirs(inbox_path, exist_ok=True)
     os.rename(src, os.path.join(inbox_path, filename))
+
+    # เข้า Maildir ของ user ด้วย ให้เปิดเห็นผ่าน IMAP/POP3
+    recipient = filename.rsplit("_", 1)[0]
+    with open(os.path.join(inbox_path, filename), "rb") as f:
+        store_maildir(recipient, f.read())
 
     # ถ้า Dashboard ส่ง log_id มาด้วย ปรับสถิติใน email_logs ให้ตรงคำตัดสินของ admin
     log_updated = False
