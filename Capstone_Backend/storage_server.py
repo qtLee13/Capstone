@@ -374,6 +374,33 @@ def list_mailbox(folder: str, user: str = ""):
     return {"status": "success", "folder": folder, "count": len(messages), "messages": messages}
 
 
+@app.post("/mailbox/quarantine/{filename}/release", dependencies=[Depends(verify_api_key)])
+def release_from_quarantine(filename: str, log_id: int = 0, db: Session = Depends(get_db)):
+    """Admin ตรวจแล้วว่าเมลกักกันปลอดภัย -> ย้ายเข้า inbox ให้ user เห็น"""
+    if _safe_name(filename) != filename:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    src = os.path.join(MAIL_STORE_ROOT, "quarantine", filename)
+    if not os.path.isfile(src):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    inbox_path = os.path.join(MAIL_STORE_ROOT, "inbox")
+    os.makedirs(inbox_path, exist_ok=True)
+    os.rename(src, os.path.join(inbox_path, filename))
+
+    # ถ้า Dashboard ส่ง log_id มาด้วย ปรับสถิติใน email_logs ให้ตรงคำตัดสินของ admin
+    log_updated = False
+    if log_id:
+        row = db.query(EmailLog).filter(EmailLog.id == log_id).first()
+        if row:
+            row.risk_level = "allow"
+            row.is_phishing = False
+            db.commit()
+            log_updated = True
+
+    return {"status": "released", "filename": filename, "moved_to": "inbox", "log_updated": log_updated}
+
+
 @app.get("/mailbox/{folder}/{filename}", dependencies=[Depends(verify_api_key)])
 def read_mail(folder: str, filename: str):
     if folder not in MAIL_FOLDERS or _safe_name(filename) != filename:
