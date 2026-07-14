@@ -168,10 +168,10 @@ class RiskScoringEngine:
             reasons.append("DMARC authentication failed")
             flags["auth_failed"] = True
 
-        ipqs_score = self._clamp(risk_input.ipqs_score)
-        if ipqs_score >= 50:
-            score += ipqs_score * 0.10
-            reasons.append(f"Sender IP has poor reputation (IPQS fraud score {ipqs_score:.0f})")
+        abuseipdb_score = self._clamp(risk_input.abuseipdb_score)
+        if abuseipdb_score >= 50:
+            score += abuseipdb_score * 0.10
+            reasons.append(f"Sender IP has poor reputation (AbuseIPDB confidence score {abuseipdb_score:.0f})")
 
         score = min(score, DOMAIN_MAX_SCORE)
 
@@ -266,9 +266,9 @@ class RiskScoringEngine:
             final_score = max(final_score, 65)
             reasons.append("Security override applied: high AI confidence")
 
-        if self._clamp(risk_input.ipqs_score) > 80:
+        if self._clamp(risk_input.abuseipdb_score) > 80:
             final_score = max(final_score, 65)
-            reasons.append("Security override applied: sender IP flagged as high fraud risk (IPQS)")
+            reasons.append("Security override applied: sender IP flagged as high abuse risk (AbuseIPDB)")
 
         return final_score, reasons
 

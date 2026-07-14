@@ -108,7 +108,8 @@ class AssessRequest(BaseModel):
 
     raw_ai_score: float = 0.0
     raw_link_score: float = 0.0
-    ipqs_score: float = 0.0
+    abuseipdb_score: float = 0.0   # IP reputation จาก AbuseIPDB
+    ipqs_score: float = 0.0        # ชื่อเก่า (deprecated) - รับไว้กันพังช่วงเปลี่ยนผ่าน
 
     subject: str = ""
     body_text: str = ""
@@ -130,7 +131,7 @@ def assess_email(request: AssessRequest, db: Session = Depends(get_db)):
         attachment_type=request.attachment_type,
         raw_ai_score=request.raw_ai_score,
         raw_link_score=request.raw_link_score,
-        ipqs_score=request.ipqs_score,
+        abuseipdb_score=request.abuseipdb_score or request.ipqs_score,
         subject=request.subject,
         body_text=request.body_text,
     )

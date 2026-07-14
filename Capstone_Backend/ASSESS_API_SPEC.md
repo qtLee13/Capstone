@@ -29,7 +29,7 @@ Content-Type: application/json
 
   "raw_ai_score": 0,
   "raw_link_score": 0,
-  "ipqs_score": 0,
+  "abuseipdb_score": 0,
 
   "subject": "string",
   "body_text": "string",
