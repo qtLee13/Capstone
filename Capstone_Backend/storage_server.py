@@ -351,20 +351,62 @@ def deliver_mail(request: DeliverRequest):
 
 
 @app.get("/mailbox/{folder}", dependencies=[Depends(verify_api_key)])
-def list_mailbox(folder: str, user: str = ""):
+def list_mailbox(folder: str, user: str = "", db: Session = Depends(get_db)):
     if folder not in MAIL_FOLDERS:
         raise HTTPException(status_code=404, detail=f"folder must be one of {sorted(MAIL_FOLDERS)}")
 
     folder_path = os.path.join(MAIL_STORE_ROOT, folder)
     if not os.path.isdir(folder_path):
-        return {"status": "success", "folder": folder, "count": 0, "messages": []}
+        return {"status": "success", "folder": folder, "count": 0, "messages": [], "items": []}
 
     prefix = _safe_name(user.split("@")[0].lower()) + "_" if user else ""
     messages = sorted(
         (f for f in os.listdir(folder_path) if f.endswith(".eml") and f.startswith(prefix)),
         reverse=True,
     )
-    return {"status": "success", "folder": folder, "count": len(messages), "messages": messages}
+
+    # items: รายละเอียดต่อฉบับ + log_id จับคู่กับ email_logs แบบ best-effort
+    # (ไฟล์เมลมาทาง SMTP ส่วน log มาทาง /assess - ไม่มี key ตรงกลาง จึงเทียบด้วย ผู้รับ+หัวข้อ)
+    import email as email_lib
+    from email import policy as email_policy
+
+    items = []
+    for filename in messages:
+        recipient_user = filename.rsplit("_", 1)[0]
+        subject, sender = "", ""
+        try:
+            with open(os.path.join(folder_path, filename), "rb") as f:
+                msg = email_lib.message_from_bytes(f.read(), policy=email_policy.default)
+            subject = str(msg.get("Subject", "") or "")
+            sender = str(msg.get("From", "") or "")
+        except Exception:
+            pass
+
+        log_id = None
+        if subject:
+            row = (
+                db.query(EmailLog)
+                .filter(EmailLog.subject == subject, EmailLog.recipient.like(f"{recipient_user}@%"))
+                .order_by(EmailLog.timestamp.desc())
+                .first()
+            ) or (
+                db.query(EmailLog)
+                .filter(EmailLog.subject == subject)
+                .order_by(EmailLog.timestamp.desc())
+                .first()
+            )
+            if row:
+                log_id = row.id
+
+        items.append({
+            "filename": filename,
+            "recipient": recipient_user,
+            "sender": sender,
+            "subject": subject,
+            "log_id": log_id,   # null = ไม่พบแถวที่จับคู่ได้ใน email_logs
+        })
+
+    return {"status": "success", "folder": folder, "count": len(messages), "messages": messages, "items": items}
 
 
 @app.post("/mailbox/quarantine/{filename}/release", dependencies=[Depends(verify_api_key)])
