@@ -319,9 +319,14 @@ def get_dashboard(period: str = "7days", db: Session = Depends(get_db)):
 
 
 @app.get("/logs")
-def get_email_logs(db: Session = Depends(get_db)):
-    logs = db.query(EmailLog).order_by(EmailLog.timestamp.desc()).limit(10).all()
-    return {"status": "success", "data": logs}
+def get_email_logs(risk_level: str = "", limit: int = 10, db: Session = Depends(get_db)):
+    """ดึง log ผลวิเคราะห์ - กรองตามสถานะได้ เช่น /logs?risk_level=quarantine
+    (เมลที่ยังไม่ถึงกล่องผู้ใช้ = risk_level "quarantine" กับ "block")"""
+    query = db.query(EmailLog)
+    if risk_level:
+        query = query.filter(EmailLog.risk_level == risk_level.lower())
+    logs = query.order_by(EmailLog.timestamp.desc()).limit(min(max(limit, 1), 200)).all()
+    return {"status": "success", "count": len(logs), "data": logs}
 
 
 # ================= 📬 Mail Server: เก็บอีเมลจริงที่ Gateway ส่งมอบ =================
