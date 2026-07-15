@@ -407,6 +407,56 @@ def read_mail(folder: str, filename: str):
         return {"status": "success", "folder": folder, "filename": filename, "raw_email": f.read()}
 
 
+# ================= 🛡️ Rule Base: กฎที่ admin flag ว่า "เมลแบบนี้ไม่ดี" =================
+# ใช้โดย 2 ฝั่ง: smtp_mail_server.py ดักเมลรอบสองก่อนเข้ากล่อง (อ่านกฎจากตารางเดียวกัน)
+# และ Proxmox Gateway ดึง GET /rules ไป block ที่ด่านแรก
+import rule_base
+
+
+class RuleIn(BaseModel):
+    rule_type: str = ""    # "sender" | "subject" | "body"
+    pattern: str = ""      # ข้อความที่ใช้จับ (เว้นว่างได้ถ้าส่ง log_id มาให้ดึงจาก log)
+    note: str = ""
+    log_id: int = 0        # อ้างอิงแถวใน email_logs เพื่อสร้างกฎจากเมลที่ admin ตรวจ
+
+
+@app.post("/rules", dependencies=[Depends(verify_api_key)])
+def create_rule(request: RuleIn, db: Session = Depends(get_db)):
+    rule_type, pattern, note = request.rule_type, request.pattern, request.note
+
+    # admin flag จาก log: ดึงข้อมูลเมลจริงมาสร้างกฎให้อัตโนมัติ
+    if request.log_id and not pattern:
+        row = db.query(EmailLog).filter(EmailLog.id == request.log_id).first()
+        if not row:
+            raise HTTPException(status_code=404, detail=f"log_id {request.log_id} not found")
+        if rule_type == "subject":
+            pattern = row.subject or ""
+        else:
+            rule_type = rule_type or "sender"
+            pattern = row.sender_domain or ""
+        note = note or f"flagged from log #{request.log_id} ({row.attack_type})"
+
+    try:
+        rule = rule_base.add_rule(rule_type, pattern, note)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    return {"status": "created", "rule": rule}
+
+
+@app.get("/rules", dependencies=[Depends(verify_api_key)])
+def get_rules():
+    rules = rule_base.list_rules()
+    return {"status": "success", "count": len(rules), "rules": rules}
+
+
+@app.delete("/rules/{rule_id}", dependencies=[Depends(verify_api_key)])
+def remove_rule(rule_id: int):
+    if not rule_base.delete_rule(rule_id):
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return {"status": "deleted", "id": rule_id}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

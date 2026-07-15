@@ -19,10 +19,19 @@ from email.policy import default as default_policy
 
 from aiosmtpd.controller import Controller
 
+import rule_base
 from mail_store import deliver
 
 SMTP_HOST = os.getenv("SMTP_HOST", "0.0.0.0")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "25"))
+
+
+def _extract_body_text(msg) -> str:
+    try:
+        part = msg.get_body(preferencelist=("plain", "html"))
+        return part.get_content() if part else ""
+    except Exception:
+        return ""
 
 
 class MailServerHandler:
@@ -30,6 +39,17 @@ class MailServerHandler:
         msg = message_from_bytes(envelope.content, policy=default_policy)
         action = (msg.get("X-Risk-Action") or "").lower()
         folder = "quarantine" if "quarantine" in action else "inbox"
+
+        # 🛡️ Rule Base: ด่านตรวจรอบสอง - กฎที่ admin flag ไว้ว่าเมลแบบนี้ไม่ดี
+        if folder == "inbox":
+            hit = rule_base.check_email(
+                sender=envelope.mail_from,
+                subject=msg.get("Subject", ""),
+                body=_extract_body_text(msg),
+            )
+            if hit:
+                folder = "quarantine"
+                print(f"[{time.strftime('%X')}] 🛡️ โดน Rule Base #{hit['id']} ({hit['rule_type']}: '{hit['pattern']}') -> กักกัน")
 
         saved = [
             deliver(folder, rcpt, envelope.content)
