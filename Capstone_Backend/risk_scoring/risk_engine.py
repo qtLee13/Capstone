@@ -15,6 +15,13 @@ from .risk_config import (
     AI_HIGH_CONFIDENCE,
     AI_MEDIUM_CONFIDENCE,
     LINK_MALICIOUS_SCORE,
+    MEDIUM_THRESHOLD,
+    SUSPICIOUS_FLOOR,
+    QUARANTINE_FLOOR,
+    SUSPICIOUS_AI,
+    AUTH_TRUST_ABUSE_MAX,
+    AUTH_TRUST_AI_MAX,
+    ABUSEIPDB_HIGH_THRESHOLD,
     ACTION_ALLOW,
     ACTION_WARNING,
     ACTION_QUARANTINE,
@@ -250,25 +257,45 @@ class RiskScoringEngine:
         reasons = []
         final_score = base_score
 
+        # --- Hard threats: จับได้แน่ ดันขึ้นสูงเสมอ ไม่ผ่อนปรน (ชนะทุกอย่าง) ---
         if flags.get("malicious_link"):
             final_score = max(final_score, 85)
             reasons.append("Security override applied: malicious link indicator")
+            return final_score, reasons
 
         if flags.get("dangerous_attachment"):
             final_score = max(final_score, 80)
             reasons.append("Security override applied: dangerous attachment type")
+            return final_score, reasons
 
-        if flags.get("spoofing_detected") and flags.get("auth_failed"):
-            final_score = max(final_score, 65)
-            reasons.append("Security override applied: spoofing with authentication failure")
+        # --- Soft signals: ต้องมีสัญญาณยืนยัน อ่อนตัวเดียวไม่พอ (ลด false-positive) ---
+        # ที่มา: AI Server (.94) - FP legit-but-suspicious 50% -> 0%, threat ยัง 100%
+        dmarc = risk_input.dmarc_result
+        abuse = self._clamp(risk_input.abuseipdb_score)
+        ai = self._clamp(risk_input.raw_ai_score)
 
-        if risk_input.raw_ai_score >= AI_HIGH_CONFIDENCE:
-            final_score = max(final_score, 65)
-            reasons.append("Security override applied: high AI confidence")
+        # ② auth trust: DMARC ผ่าน + IP สะอาด + AI ต่ำ = เชื่อได้ กดไม่ให้เกิน Warning
+        authenticated = (
+            dmarc == "pass"
+            and abuse < AUTH_TRUST_ABUSE_MAX
+            and ai < AUTH_TRUST_AI_MAX
+        )
+        if authenticated:
+            capped = min(final_score, MEDIUM_THRESHOLD - 1)   # อย่างมากแค่ก่อน Warning = Allow
+            if capped < final_score:
+                reasons.append("Trust override applied: DMARC pass + clean IP + low AI confidence")
+            return capped, reasons
 
-        if self._clamp(risk_input.abuseipdb_score) > 80:
-            final_score = max(final_score, 65)
-            reasons.append("Security override applied: sender IP flagged as high abuse risk (AbuseIPDB)")
+        # ① สัญญาณยืนยัน: IP abuse แรงเดี่ยวๆ / AI สูงมาก / AI สูง+auth ผิดอย่างน้อย 1
+        strong_signal = abuse > ABUSEIPDB_HIGH_THRESHOLD or ai >= AI_HIGH_CONFIDENCE
+        weak_signals = int(bool(risk_input.reply_to_mismatch)) + int(dmarc == "fail")
+
+        if strong_signal or (ai >= SUSPICIOUS_AI and weak_signals >= 1):
+            final_score = max(final_score, QUARANTINE_FLOOR)   # BEC/phishing/IP แข็ง -> Quarantine
+            reasons.append("Security override applied: confirmed threat signal (strong abuse/AI or AI + auth anomaly)")
+        elif weak_signals >= 2:
+            final_score = max(final_score, SUSPICIOUS_FLOOR)   # ③ AI ต่ำ + อ่อน 2 -> แค่ Warning
+            reasons.append("Security override applied: multiple weak signals flagged for review")
 
         return final_score, reasons
 
