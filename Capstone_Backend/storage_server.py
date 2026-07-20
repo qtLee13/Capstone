@@ -3,7 +3,7 @@ Storage + Risk Scoring Server: this machine owns the database (EmailLog
 table, /dashboard, /logs) and the risk scoring engine (risk_scoring/).
 
 The AI Model Server (running on a teammate's machine) does email parsing,
-BERT classification, and threat-intel lookups (link/IPQS/DMARC), then calls
+BERT classification, and threat-intel lookups (link/AbuseIPDB/DMARC), then calls
 POST /assess here with the raw signals. This server runs the risk_scoring
 engine to compute the final score/action, persists it to the DB, and
 returns the result so the caller can enforce the policy (block/quarantine/
@@ -108,8 +108,7 @@ class AssessRequest(BaseModel):
 
     raw_ai_score: float = 0.0
     raw_link_score: float = 0.0
-    abuseipdb_score: float = 0.0   # IP reputation จาก AbuseIPDB
-    ipqs_score: float = 0.0        # ชื่อเก่า (deprecated) - รับไว้กันพังช่วงเปลี่ยนผ่าน
+    abuseipdb_score: float = 0.0   # IP reputation จาก AbuseIPDB (สูง = อันตราย)
 
     subject: str = ""
     body_text: str = ""
@@ -131,7 +130,7 @@ def assess_email(request: AssessRequest, db: Session = Depends(get_db)):
         attachment_type=request.attachment_type,
         raw_ai_score=request.raw_ai_score,
         raw_link_score=request.raw_link_score,
-        abuseipdb_score=request.abuseipdb_score or request.ipqs_score,
+        abuseipdb_score=request.abuseipdb_score,
         subject=request.subject,
         body_text=request.body_text,
     )
@@ -502,6 +501,145 @@ def remove_rule(rule_id: int):
     if not rule_base.delete_rule(rule_id):
         raise HTTPException(status_code=404, detail="Rule not found")
     return {"status": "deleted", "id": rule_id}
+
+
+# =====================================================================
+# 🚪 Proxmox Mail Gateway: ตัวกลางระหว่าง PMG กับ Mail Server
+# =====================================================================
+# ทางเข้า  : PMG -> POST /gateway/ingest -> ตรวจ+log -> relay SMTP ไป mail server
+# ทางจัดการ: GET /gateway/status, /gateway/quarantine, POST /gateway/rules/sync
+import proxmox_gateway
+from proxmox_gateway import PMGError
+
+
+class GatewayIngestRequest(BaseModel):
+    raw_email: str                      # เนื้ออีเมลดิบทั้งฉบับ (.eml) ที่ PMG รับมา
+    envelope_sender: str = ""           # MAIL FROM ที่ PMG เห็น
+    envelope_recipients: List[str] = [] # RCPT TO ที่ PMG เห็น
+
+    # signal จาก AI server / threat intel ถ้า PMG เรียกมาก่อนแล้ว (ไม่ส่งมาก็เป็น 0)
+    raw_ai_score: float = 0.0
+    raw_link_score: float = 0.0
+    abuseipdb_score: float = 0.0
+    attack_type: str = "Normal"
+
+
+@app.post("/gateway/ingest", dependencies=[Depends(verify_api_key)])
+def gateway_ingest(request: GatewayIngestRequest, db: Session = Depends(get_db)):
+    """ด่านตรวจของตัวกลาง: PMG ส่งเมลมาที่นี่ก่อนเข้า Mail Server
+
+    ลำดับ: แกะ signal -> rule base -> risk engine -> เขียน log
+           -> block = ทิ้งที่นี่ (เหลือแต่ log) / นอกนั้น relay ต่อไป SMTP :25
+    """
+    raw_bytes = request.raw_email.encode("utf-8")
+    try:
+        signals = proxmox_gateway.parse_signals(
+            raw_bytes, request.envelope_sender,
+            request.envelope_recipients[0] if request.envelope_recipients else "",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"แกะเมลไม่ได้: {e}")
+
+    result = risk_engine.calculate(RiskInput(
+        sender_domain=signals["sender_domain"],
+        sender_email=signals["sender_email"],
+        recipient=signals["recipient"],
+        spf_result=signals["spf_result"],
+        dkim_result=signals["dkim_result"],
+        dmarc_result=signals["dmarc_result"],
+        reply_to_mismatch=signals["reply_to_mismatch"],
+        sender_spoofing=signals["sender_spoofing"],
+        attachment_type=signals["attachment_type"],
+        raw_ai_score=request.raw_ai_score,
+        raw_link_score=request.raw_link_score,
+        abuseipdb_score=request.abuseipdb_score,
+        subject=signals["subject"],
+        body_text=signals["body_text"],
+    ))
+
+    action = result.action
+
+    # 🛡️ Rule Base: กฎที่ admin flag ไว้ ชนะคะแนนเสมอ - อย่างน้อยต้องกักกัน
+    rule_hit = rule_base.check_email(
+        sender=signals["sender_email"] or request.envelope_sender,
+        subject=signals["subject"],
+        body=signals["body_text"],
+    )
+    if rule_hit and action in ("allow", "warning"):
+        action = "quarantine"
+
+    log_row = EmailLog(
+        sender_domain=signals["sender_domain"],
+        recipient=signals["recipient"],
+        subject=signals["subject"],
+        final_score=result.final_score,
+        ai_score=result.components["ai_score"],
+        link_risk=result.components["link_risk"],
+        domain_risk=result.components["domain_risk"],
+        header_anomaly=result.components["header_anomaly"],
+        risk_level=action,
+        is_phishing=result.final_score >= 30 or bool(rule_hit),
+        attack_type=request.attack_type,
+    )
+    db.add(log_row)
+    db.commit()
+    db.refresh(log_row)
+
+    # block = ไม่ส่งต่อ เมลจบที่ตัวกลาง เหลือไว้แต่ log ให้ Dashboard เห็น
+    delivered, relay_error = False, None
+    if action != "block":
+        try:
+            proxmox_gateway.relay_to_mail_server(
+                raw_bytes,
+                sender=signals["sender_email"] or request.envelope_sender,
+                recipients=request.envelope_recipients or [signals["recipient"]],
+                action=action,
+            )
+            delivered = True
+        except Exception as e:
+            relay_error = str(e)
+
+    return {
+        "status": "processed",
+        "log_id": log_row.id,
+        "action": action,                      # allow | warning | quarantine | block
+        "final_risk_score": result.final_score,
+        "risk_level": result.display_level,
+        "rule_hit": rule_hit,                  # null = ไม่โดนกฎ admin
+        "delivered_to_mail_server": delivered,
+        "relay_error": relay_error,            # null = ส่งต่อสำเร็จ (หรือ block จึงไม่ส่ง)
+        "reasons": result.reasons,
+    }
+
+
+@app.get("/gateway/status", dependencies=[Depends(verify_api_key)])
+def gateway_status():
+    """เช็คว่าตัวกลางคุยกับ PMG ได้ไหม (ใช้ตอน debug/หน้า Dashboard)"""
+    try:
+        return {"status": "success", "pmg": proxmox_gateway.get_client().status()}
+    except PMGError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/gateway/quarantine", dependencies=[Depends(verify_api_key)])
+def gateway_quarantine(kind: str = "spam", limit: int = 50):
+    """กล่องกักกันฝั่ง PMG (คนละกล่องกับ /mailbox/quarantine ของ Mail Server)"""
+    if kind not in ("spam", "virus", "attachment"):
+        raise HTTPException(status_code=422, detail="kind must be spam | virus | attachment")
+    try:
+        items = proxmox_gateway.get_client().quarantine(kind, min(max(limit, 1), 200))
+    except PMGError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return {"status": "success", "kind": kind, "count": len(items), "items": items}
+
+
+@app.post("/gateway/rules/sync", dependencies=[Depends(verify_api_key)])
+def gateway_sync_rules():
+    """push กฎ sender จาก block_rules ขึ้น PMG ให้ block ตั้งแต่ด่านแรก"""
+    try:
+        return {"status": "synced", **proxmox_gateway.get_client().sync_rules(rule_base.list_rules())}
+    except PMGError as e:
+        raise HTTPException(status_code=502, detail=str(e))
 
 
 if __name__ == "__main__":

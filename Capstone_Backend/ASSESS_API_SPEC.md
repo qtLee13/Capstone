@@ -8,7 +8,7 @@ Content-Type: application/json
 ```
 
 ## สิ่งที่เพื่อนต้องทำฝั่ง AI server
-1. ยังทำ email parsing + BERT (stage1) + XGBoost (stage2 attack_type) + link/IPQS/DMARC checks เหมือนเดิม
+1. ยังทำ email parsing + BERT (stage1) + XGBoost (stage2 attack_type) + link/AbuseIPDB/DMARC checks เหมือนเดิม
 2. เอาโค้ดส่วน risk scoring (คำนวณ final_score/action) และการเขียน DB ออก
 3. ส่ง raw signal ที่ได้มาที่ `/assess` แทน แล้วใช้ response ที่ได้กลับมาเป็นคำตอบสุดท้ายให้ Gateway
 
