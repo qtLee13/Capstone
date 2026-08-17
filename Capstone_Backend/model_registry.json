@@ -1,0 +1,163 @@
+{
+  "stage2": {
+    "active": "xgb_20260722_171012",
+    "versions": {
+      "xgb_20260717_151705": {
+        "trained_at": "2026-07-17T15:17:05",
+        "trained_with_stage1": "phishing_bert_model_v3",
+        "n_train": 952,
+        "note": "retrain ด้วย ai_score จาก mBERT v3 (รองรับไทย) — ตัวที่ใช้งานอยู่",
+        "archive_model": "model_store/xgb_20260717_151705.json",
+        "archive_encoder": "model_store/enc_20260717_151705.pkl",
+        "metrics": {
+          "accuracy": 0.712,
+          "macro_f1": 0.663,
+          "weighted_f1_cv": 0.6891,
+          "per_class_f1": {
+            "Spam (High-Risk Source)": 0.8,
+            "Malware Attachment": 0.75,
+            "Phishing": 0.62,
+            "Business Email Compromise (BEC)": 0.48
+          }
+        },
+        "feature_schema": "v1",
+        "features": [
+          "ai_score",
+          "link_risk",
+          "abuseipdb_score",
+          "dmarc_fail",
+          "reply_to_mismatch",
+          "attachment_risk"
+        ]
+      },
+      "xgb_20260716_142700": {
+        "trained_at": "2026-07-16T14:27:00",
+        "trained_with_stage1": "phishing_bert_model_v2",
+        "n_train": 919,
+        "note": "รุ่นก่อนเปลี่ยนเป็น mBERT — เทรนด้วย ai_score จาก bert-base-uncased (v2) เก็บไว้เผื่อ rollback ฉุกเฉิน",
+        "archive_model": "model_store/xgb_20260716_142700.json",
+        "archive_encoder": "model_store/enc_20260716_142700.pkl",
+        "metrics": null,
+        "metrics_note": "ไม่ระบุตัวเลข เพราะวัดบน feature ชุดที่ ai_score มาจาก BERT คนละตัว เทียบกับรุ่นปัจจุบันตรงๆ ไม่ได้",
+        "feature_schema": "v1",
+        "features": [
+          "ai_score",
+          "link_risk",
+          "abuseipdb_score",
+          "dmarc_fail",
+          "reply_to_mismatch",
+          "attachment_risk"
+        ]
+      },
+      "xgb_20260722_152211": {
+        "trained_at": "2026-07-22T15:22:11",
+        "trained_with_stage1": "phishing_bert_model_v3",
+        "feature_schema": "v2",
+        "features": [
+          "ai_score",
+          "link_risk",
+          "abuseipdb_score",
+          "reply_to_mismatch",
+          "attachment_risk"
+        ],
+        "n_train": 952,
+        "note": "P2 — ตัด dmarc_fail (ไม่มีข้อมูล DMARC จริง มีแต่ร่องรอย DNS lookup ล้ม) · ไม่ใส่ missing-flag เพราะตัวอย่าง missing น้อยเกินไปจนทำให้ระบบเปราะ (52.7% พลิกถ้า AbuseIPDB ล่ม)",
+        "metrics": {
+          "accuracy": 0.6963,
+          "macro_f1": 0.699,
+          "weighted_f1_cv": 0.6891,
+          "weighted_f1_cv_std": 0.0277,
+          "per_class_f1": {
+            "Business Email Compromise (BEC)": 0.524,
+            "Malware Attachment": 0.889,
+            "Phishing": 0.621,
+            "Spam (High-Risk Source)": 0.763
+          },
+          "confusion_matrix": [
+            [
+              11,
+              0,
+              4,
+              10
+            ],
+            [
+              0,
+              4,
+              0,
+              1
+            ],
+            [
+              3,
+              0,
+              36,
+              21
+            ],
+            [
+              3,
+              0,
+              16,
+              82
+            ]
+          ]
+        },
+        "archive_model": "model_store/xgb_20260722_152211.json",
+        "archive_encoder": "model_store/enc_20260722_152211.pkl"
+      },
+      "xgb_20260722_171012": {
+        "trained_at": "2026-07-22T17:10:12",
+        "trained_with_stage1": "phishing_bert_model_v3",
+        "feature_schema": "v2",
+        "features": [
+          "ai_score",
+          "link_risk",
+          "abuseipdb_score",
+          "reply_to_mismatch",
+          "attachment_risk"
+        ],
+        "n_train": 952,
+        "note": "P2 — ตัด dmarc_fail (ไม่มีข้อมูล DMARC จริง มีแต่ร่องรอย DNS lookup ล้ม) · ไม่ใส่ missing-flag เพราะตัวอย่าง missing น้อยเกินไปจนทำให้ระบบเปราะ (52.7% พลิกถ้า AbuseIPDB ล่ม)",
+        "metrics": {
+          "accuracy": 0.6911,
+          "macro_f1": 0.6871,
+          "weighted_f1_cv": 0.6903,
+          "weighted_f1_cv_std": 0.0273,
+          "per_class_f1": {
+            "Business Email Compromise (BEC)": 0.476,
+            "Malware Attachment": 0.889,
+            "Phishing": 0.621,
+            "Spam (High-Risk Source)": 0.763
+          },
+          "confusion_matrix": [
+            [
+              10,
+              0,
+              5,
+              10
+            ],
+            [
+              0,
+              4,
+              0,
+              1
+            ],
+            [
+              3,
+              0,
+              36,
+              21
+            ],
+            [
+              4,
+              0,
+              15,
+              82
+            ]
+          ]
+        },
+        "archive_model": "model_store/xgb_20260722_171012.json",
+        "archive_encoder": "model_store/enc_20260722_171012.pkl"
+      }
+    },
+    "active_feature_schema": "v2"
+  }
+}

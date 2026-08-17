@@ -1,0 +1,220 @@
+{
+  "english_holdout (n=3000)": {
+    "n": 3000,
+    "rows": [
+      {
+        "threshold": 30,
+        "TP": 1587,
+        "FP": 3,
+        "FN": 4,
+        "TN": 1406,
+        "precision": 0.9981,
+        "recall": 0.9975,
+        "f1": 0.9978,
+        "fp_rate": 0.0021
+      },
+      {
+        "threshold": 50,
+        "TP": 1587,
+        "FP": 2,
+        "FN": 4,
+        "TN": 1407,
+        "precision": 0.9987,
+        "recall": 0.9975,
+        "f1": 0.9981,
+        "fp_rate": 0.0014
+      },
+      {
+        "threshold": 65,
+        "TP": 1587,
+        "FP": 2,
+        "FN": 4,
+        "TN": 1407,
+        "precision": 0.9987,
+        "recall": 0.9975,
+        "f1": 0.9981,
+        "fp_rate": 0.0014
+      },
+      {
+        "threshold": 85,
+        "TP": 1587,
+        "FP": 2,
+        "FN": 4,
+        "TN": 1407,
+        "precision": 0.9987,
+        "recall": 0.9975,
+        "f1": 0.9981,
+        "fp_rate": 0.0014
+      },
+      {
+        "threshold": 95,
+        "TP": 1586,
+        "FP": 2,
+        "FN": 5,
+        "TN": 1407,
+        "precision": 0.9987,
+        "recall": 0.9969,
+        "f1": 0.9978,
+        "fp_rate": 0.0014
+      },
+      {
+        "threshold": 99,
+        "TP": 1585,
+        "FP": 2,
+        "FN": 6,
+        "TN": 1407,
+        "precision": 0.9987,
+        "recall": 0.9962,
+        "f1": 0.9975,
+        "fp_rate": 0.0014
+      }
+    ],
+    "calibration": [
+      {
+        "bin": "0-10",
+        "count": 1410,
+        "actual_phishing_pct": 0.3
+      },
+      {
+        "bin": "10-30",
+        "count": 0,
+        "actual_phishing_pct": null
+      },
+      {
+        "bin": "30-50",
+        "count": 1,
+        "actual_phishing_pct": 0.0
+      },
+      {
+        "bin": "50-65",
+        "count": 0,
+        "actual_phishing_pct": null
+      },
+      {
+        "bin": "65-85",
+        "count": 0,
+        "actual_phishing_pct": null
+      },
+      {
+        "bin": "85-95",
+        "count": 1,
+        "actual_phishing_pct": 100.0
+      },
+      {
+        "bin": "95-100",
+        "count": 1588,
+        "actual_phishing_pct": 99.9
+      }
+    ],
+    "extreme_pct": 99.8
+  },
+  "thai_test (n=800)": {
+    "n": 800,
+    "rows": [
+      {
+        "threshold": 30,
+        "TP": 374,
+        "FP": 25,
+        "FN": 26,
+        "TN": 375,
+        "precision": 0.9373,
+        "recall": 0.935,
+        "f1": 0.9362,
+        "fp_rate": 0.0625
+      },
+      {
+        "threshold": 50,
+        "TP": 374,
+        "FP": 25,
+        "FN": 26,
+        "TN": 375,
+        "precision": 0.9373,
+        "recall": 0.935,
+        "f1": 0.9362,
+        "fp_rate": 0.0625
+      },
+      {
+        "threshold": 65,
+        "TP": 373,
+        "FP": 19,
+        "FN": 27,
+        "TN": 381,
+        "precision": 0.9515,
+        "recall": 0.9325,
+        "f1": 0.9419,
+        "fp_rate": 0.0475
+      },
+      {
+        "threshold": 85,
+        "TP": 369,
+        "FP": 17,
+        "FN": 31,
+        "TN": 383,
+        "precision": 0.956,
+        "recall": 0.9225,
+        "f1": 0.9389,
+        "fp_rate": 0.0425
+      },
+      {
+        "threshold": 95,
+        "TP": 364,
+        "FP": 16,
+        "FN": 36,
+        "TN": 384,
+        "precision": 0.9579,
+        "recall": 0.91,
+        "f1": 0.9333,
+        "fp_rate": 0.04
+      },
+      {
+        "threshold": 99,
+        "TP": 351,
+        "FP": 8,
+        "FN": 49,
+        "TN": 392,
+        "precision": 0.9777,
+        "recall": 0.8775,
+        "f1": 0.9249,
+        "fp_rate": 0.02
+      }
+    ],
+    "calibration": [
+      {
+        "bin": "0-10",
+        "count": 401,
+        "actual_phishing_pct": 6.5
+      },
+      {
+        "bin": "10-30",
+        "count": 0,
+        "actual_phishing_pct": null
+      },
+      {
+        "bin": "30-50",
+        "count": 0,
+        "actual_phishing_pct": null
+      },
+      {
+        "bin": "50-65",
+        "count": 7,
+        "actual_phishing_pct": 14.3
+      },
+      {
+        "bin": "65-85",
+        "count": 6,
+        "actual_phishing_pct": 66.7
+      },
+      {
+        "bin": "85-95",
+        "count": 6,
+        "actual_phishing_pct": 83.3
+      },
+      {
+        "bin": "95-100",
+        "count": 380,
+        "actual_phishing_pct": 95.8
+      }
+    ],
+    "extreme_pct": 94.5
+  }
+}

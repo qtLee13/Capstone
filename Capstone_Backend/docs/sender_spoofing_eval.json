@@ -1,0 +1,41 @@
+{
+  "ceas_ham": 17312,
+  "ceas_phish": 21842,
+  "flagged_ham": 5,
+  "flagged_phish": 15,
+  "fp_rate_pct": 0.029,
+  "precision_pct": 75.0,
+  "per_reason": {
+    "impersonates_recipient_org": {
+      "ham": 10,
+      "phish": 0,
+      "precision_pct": 0.0
+    },
+    "brand_related_domain": {
+      "ham": 4,
+      "phish": 0,
+      "precision_pct": 0.0
+    },
+    "brand_mismatch": {
+      "ham": 3,
+      "phish": 6,
+      "precision_pct": 66.7
+    },
+    "display_name_other_email": {
+      "ham": 1,
+      "phish": 7,
+      "precision_pct": 87.5
+    },
+    "lookalike_domain": {
+      "ham": 1,
+      "phish": 2,
+      "precision_pct": 66.7
+    },
+    "homoglyph_domain": {
+      "ham": 0,
+      "phish": 1,
+      "precision_pct": 100.0
+    }
+  },
+  "unit_cases_passed": "17/17"
+}

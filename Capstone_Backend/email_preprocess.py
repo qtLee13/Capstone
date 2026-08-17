@@ -1,0 +1,661 @@
+"""
+email_preprocess.py — การแปลง text ก่อนเข้า BERT (Stage 1) ใช้ร่วมกันทั้ง 2 ฝั่ง
+================================================================================
+⚠️ ต้องให้ตรงกับตอน train (Cap Stone AI/scripts/preprocess_data.py):
+     text = subject + ". " + body   (clean_text = collapse whitespace)
+   จากนั้น train_bert.py: mask URL (regex URL -> [URL]) แล้ว tokenize max_length=256
+
+ไฟล์นี้เป็น "แหล่งเดียว" ของ transform → serve (main.py) และ extractor (scripts/build_*) import ไปใช้
+เพื่อกัน train/serving skew (ก่อนหน้านี้ serve ป้อน body อย่างเดียว/ไม่ strip HTML)
+
+ใช้ stdlib ล้วน (html.parser) — ไม่ต้องลง dependency เพิ่มบนเครื่อง VM
+"""
+import os
+import re
+from html.parser import HTMLParser
+
+URL_RE = re.compile(r"https?://[^\s]+")
+_WS_RE = re.compile(r"\s+")
+
+# =====================================================================
+# การให้คะแนนความเสี่ยงของลิงก์ (single source of truth — serve + extractor ใช้ตัวนี้ตัวเดียว)
+#
+# 🐛 บั๊กที่แก้ 2026-07-22 (ทีม Gateway รายงาน):
+#    เดิมเช็คด้วย `'.click' in url.lower()` = เทียบแบบ "มีคำนี้อยู่ที่ไหนก็ได้ใน URL"
+#    -> https://us.click.yahoo.com/...      โดน (มี ".click" เป็น subdomain)
+#    -> https://www.topgear.com/news        โดน (มี ".top" อยู่ในชื่อ)
+#    -> https://erp.clicksuite.com.br/...   โดน (มี ".click" ใน "clicksuite")
+#    วัดบน corpus จริง 8,612 ฉบับ: 25.3% ของ URL ที่ "ติดกฎ" เป็น false positive
+#    ตอนนี้เทียบเฉพาะ "ท้าย hostname" เท่านั้น (TLD จริง) ไม่ใช่ substring ทั้ง URL
+# =====================================================================
+RISKY_TLDS = (".xyz", ".top", ".click", ".tk")
+
+_IP_IN_URL_RE = re.compile(r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}")
+# ดึง hostname แบบทนพัง — ไม่ใช้ urlparse เพราะมันโยน ValueError กับ URL เพี้ยนใน spam จริง
+_HOST_RE = re.compile(r"^[a-z][a-z0-9+.-]*://(?:[^/@\s]*@)?([^/:?#\s\[\]]+)", re.I)
+
+# ระดับคะแนน — ตัวเลขต้องตรงกันทั้งตอนเทรนและตอน serve
+LINK_NONE       = 0     # ไม่มีลิงก์เลย
+LINK_PLAIN      = 10    # มีลิงก์ แต่ไม่เข้าเงื่อนไขน่าสงสัย
+LINK_RISKY_TLD  = 70    # TLD เสี่ยง (.xyz/.top/.click/.tk)
+LINK_IP_LITERAL = 90    # ใช้ IP แทนชื่อโดเมน
+LINK_MAX_HEURISTIC = 99  # เพดานของ "การเดาจากรูปแบบ" — สงวนเลข 100 ไว้ให้ของที่ยืนยันแล้ว
+LINK_CONFIRMED  = 100   # VirusTotal ยืนยันว่าเป็นมัลแวร์
+
+
+def url_host(url: str) -> str:
+    """ดึง hostname จาก URL (ตัวพิมพ์เล็ก) — คืน '' ถ้าแกะไม่ได้"""
+    m = _HOST_RE.match((url or "").strip())
+    return m.group(1).lower().rstrip(".") if m else ""
+
+
+def has_risky_tld(url: str) -> bool:
+    """TLD ของ URL นี้อยู่ในรายการเสี่ยงไหม — เทียบที่ 'ท้าย hostname' เท่านั้น"""
+    return url_host(url).endswith(RISKY_TLDS)
+
+
+def score_one_url(url: str, vt_malicious: bool = False) -> int:
+    """คะแนนความเสี่ยงของ URL เดียว (0–100)"""
+    if vt_malicious:
+        return LINK_CONFIRMED
+    score = LINK_PLAIN
+    if _IP_IN_URL_RE.search(url or ""):
+        score += 80
+    if has_risky_tld(url):
+        score += 60
+    return min(score, LINK_MAX_HEURISTIC)
+
+
+def link_confidence(score: int) -> str:
+    """
+    แปลงคะแนนเป็น 'ระดับความมั่นใจ' ให้ฝั่ง scoring ใช้ตัดสินใจได้โดยไม่ต้องเดาจากตัวเลข
+    ⚠️ 'suspicious' คือ "รูปแบบน่าสงสัย" ไม่ใช่ "ยืนยันว่าอันตราย" — ไม่ควรใช้ block เดี่ยวๆ
+    """
+    if score >= LINK_CONFIRMED:
+        return "confirmed"      # VirusTotal ยืนยัน — ใช้ตัดสินเดี่ยวๆ ได้
+    if score >= LINK_RISKY_TLD:
+        return "suspicious"     # เดาจากรูปแบบ — ต้องรวมกับสัญญาณอื่นก่อนตัดสิน
+    if score > LINK_NONE:
+        return "low"            # มีลิงก์ ไม่มีอะไรน่าสงสัย
+    return "none"               # ไม่มีลิงก์
+
+# =====================================================================
+# นามสกุลไฟล์แนบเสี่ยง (single source of truth — main.py serve + extractor ใช้ตัวนี้ตัวเดียว)
+# executable/script/office-macro/shortcut + archive/container + split-archive parts
+# ครอบคลุม malspam ยุคใหม่: .tar/.gz/.xz/.txz/.lzh archive, .one (OneNote), split .r00/.z01
+# =====================================================================
+RISKY_EXT = (
+    # executable / script / office-macro / shortcut / installer / java
+    ".exe", ".scr", ".js", ".vbs", ".doc", ".docm", ".xls", ".xlsm", ".lnk", ".bat", ".msi", ".jar",
+    # archive / container
+    ".zip", ".rar", ".7z", ".iso", ".img", ".cab", ".ace", ".arj",
+    ".tar", ".gz", ".tgz", ".xz", ".txz", ".bz2", ".z", ".lzh", ".lha",
+    # other malspam carriers
+    ".one", ".uue",
+)
+# split-archive parts: .r00-.r99, .z01-.z99, .001-.999 (7z/zip split)
+_SPLIT_ARCHIVE_RE = re.compile(r"^\.(r\d{2}|z\d{2}|\d{3})$")
+
+
+# =====================================================================
+# สัญญา feature ของ Stage 2 (single source of truth — train + serve ใช้ตัวนี้ตัวเดียว)
+# ⚠️ XGBoost รับ array ล้วน ไม่ได้ดูชื่อคอลัมน์ -> ถ้าลำดับสองฝั่งไม่ตรงกัน
+#    มันจะเอาค่าผิดช่องไปทำนายโดยไม่มี error ใดๆ ให้เห็น
+#
+# v2 (2026-07-22, P2): ตัด `dmarc_fail` ออก — เหลือ 5 feature
+#   เหตุผล: dmarc_fail ในข้อมูลเทรน "วัดได้" มีค่าเดียวคือ 1.0 ทั้ง 927 แถว
+#           -> ค่า 0 ที่โมเดลเห็นคือ "หา DNS record ไม่ได้" ล้วนๆ ไม่ใช่ "DMARC ผ่าน"
+#           แต่ตอน serve ค่า 0 แปลว่า "ผ่านจริง" = คนละความหมาย
+#           มันจึงเป็นช่องที่ไม่มีข้อมูล DMARC จริงอยู่เลย มีแต่ร่องรอยว่า DNS lookup ล้ม
+#   วัดแล้ว: ตัดทิ้งไม่กระทบคุณภาพ (5-fold CV 0.6891 ±0.028 vs ของเดิม 0.6953 ±0.022 = เสมอ)
+#
+# ❌ ทำไม "ไม่" ใส่ abuseipdb_missing แม้จะเป็นวิธีมาตรฐาน:
+#   ข้อมูลเทรนมีเคส missing แค่ 17/952 แถว (1.8%) -> โมเดลสร้าง branch ใหญ่บนตัวอย่างน้อยเกินไป
+#   ทดสอบแล้ว: ถ้า AbuseIPDB ล่ม/คีย์หมดอายุ (missing=1 ทั้งหมด)
+#       มี flag    -> คำทำนายเปลี่ยน 52.7%   ‼️ ระบบพลิกทั้งระบบเพราะ API เจ้าเดียวล่ม
+#       ไม่มี flag -> คำทำนายเปลี่ยน  2.5%
+#   ความถูกต้องเชิงตรรกะแลกมาด้วยความเปราะระดับนี้ไม่คุ้ม — รอให้ feedback loop จาก production
+#   สะสมเคส missing มากพอก่อน (ดู results/stage2_p2_missing_flags.json)
+# =====================================================================
+STAGE2_FEATURES = (
+    "ai_score",
+    "link_risk",
+    "abuseipdb_score",     # วัดไม่ได้ -> 0 (ข้อจำกัดที่ยังเหลือ ดูหมายเหตุด้านบน)
+    "reply_to_mismatch",
+    "attachment_risk",
+)
+STAGE2_FEATURES_V1 = (
+    "ai_score", "link_risk", "abuseipdb_score", "dmarc_fail", "reply_to_mismatch", "attachment_risk",
+)   # ของเดิม เก็บไว้อ้างอิงตอน rollback โมเดลเก่า
+
+
+def stage2_vector(ai_score, link_risk, abuseipdb_score, reply_to_mismatch, attachment_risk):
+    """
+    สร้าง feature vector ของ Stage 2 ให้ลำดับตรงกับ STAGE2_FEATURES เสมอ
+    ใช้ทั้งฝั่ง serve (main.py) และฝั่งเทรน เพื่อกันลำดับสลับ
+
+    ⚠️ `abuseipdb_score=None` (วัดไม่ได้) ยังถูกเติมเป็น 0 เหมือน "IP สะอาด"
+       เป็นข้อจำกัดที่รู้ตัวและยอมรับไว้ชั่วคราว (เหตุผลอยู่ในหมายเหตุของ STAGE2_FEATURES)
+       ฝั่ง response ยังส่ง `abuseipdb_measured` กลับไปให้ Gateway แยกเองได้
+    """
+    return [
+        float(ai_score),
+        float(link_risk or 0),
+        float(abuseipdb_score or 0),
+        1.0 if reply_to_mismatch else 0.0,
+        1.0 if attachment_risk else 0.0,
+    ]
+
+
+def is_risky_ext(ext: str) -> bool:
+    """นามสกุล (รวมจุด เช่น '.zip') เสี่ยงไหม — literal list + split-archive pattern"""
+    ext = (ext or "").lower()
+    return ext in RISKY_EXT or bool(_SPLIT_ARCHIVE_RE.match(ext))
+
+
+def is_risky_attachment(filename: str) -> bool:
+    """ชื่อไฟล์แนบเสี่ยงไหม (ดูจากนามสกุลท้าย)"""
+    return is_risky_ext(os.path.splitext(filename or "")[1])
+
+
+# ---------------------------------------------------------------------------
+# หานามสกุลไฟล์แนบแบบหลายชั้น (ทีม Gateway รายงาน 2026-08-10)
+# ช่องโหว่เดิม: ดูแต่ชื่อไฟล์ -> ถ้าผู้โจมตี "ไม่ใส่ filename=" มา ไฟล์แนบอันตรายหลุดทั้งหมด
+#   พิสูจน์แล้ว: .js ไม่มี filename -> attachment_type=[] has_malware=False -> score 7.09 "Normal"
+#               .js มี filename    -> ['.js'] True                        -> score 80  "Malware Attachment"
+# แก้: ไล่หาเป็นชั้น ชั้นไหนตอบได้ใช้ชั้นนั้น (ชั้นล่างปลอมยากขึ้นเรื่อยๆ)
+#   ① filename= / name=  ② Content-Type (MIME)  ③ magic bytes ของเนื้อไฟล์
+# ⚠️ อ่านเนื้อไฟล์ในหน่วยความจำเท่านั้น — ไม่เขียนลงดิสก์ ไม่รัน (นโยบายความปลอดภัยของโปรเจกต์)
+# ---------------------------------------------------------------------------
+
+# ชั้น ② MIME -> นามสกุล · ใส่เฉพาะชนิดที่สื่อถึงไฟล์อันตรายชัดเจน
+MIME_TO_EXT = {
+    "application/javascript": ".js", "text/javascript": ".js", "application/x-javascript": ".js",
+    "application/x-msdownload": ".exe", "application/x-msdos-program": ".exe",
+    "application/x-dosexec": ".exe", "application/vnd.microsoft.portable-executable": ".exe",
+    "application/x-msi": ".msi", "application/java-archive": ".jar",
+    "application/zip": ".zip", "application/x-zip-compressed": ".zip",
+    "application/x-rar-compressed": ".rar", "application/vnd.rar": ".rar",
+    "application/x-7z-compressed": ".7z", "application/x-iso9660-image": ".iso",
+    "application/x-tar": ".tar", "application/gzip": ".gz", "application/x-gzip": ".gz",
+    "application/x-bzip2": ".bz2", "application/x-cab-compressed": ".cab",
+    "application/msword": ".doc", "application/vnd.ms-excel": ".xls",
+    "application/vnd.ms-word.document.macroEnabled.12": ".docm",
+    "application/vnd.ms-excel.sheet.macroEnabled.12": ".xlsm",
+    "application/onenote": ".one", "text/vbscript": ".vbs", "application/x-ms-shortcut": ".lnk",
+}
+
+# ชั้น ③ magic bytes -> นามสกุล · ปลอมยากที่สุด (ต้องแก้เนื้อไฟล์จริง)
+_MAGIC = (
+    (b"MZ",                       ".exe"),   # PE executable / DLL
+    (b"PK\x03\x04",               ".zip"),   # zip family (รวม docm/xlsm/jar ที่เป็น zip)
+    (b"Rar!\x1a\x07",             ".rar"),
+    (b"7z\xbc\xaf\x27\x1c",       ".7z"),
+    (b"\xd0\xcf\x11\xe0\xa1\xb1", ".doc"),   # OLE2 (doc/xls รุ่นเก่า — พาหะ macro)
+    (b"\x1f\x8b",                 ".gz"),
+    (b"BZh",                      ".bz2"),
+    (b"MSCF",                     ".cab"),
+    (b"L\x00\x00\x00\x01\x14\x02", ".lnk"),  # Windows shortcut
+)
+_MAGIC_MAX_BYTES = 2_000_000   # ไม่ decode ไฟล์ใหญ่เกินนี้ (กันเปลือง RAM)
+
+
+def ext_from_mime(content_type: str) -> str:
+    """ชั้น ② — เดานามสกุลจาก Content-Type · ไม่รู้จักคืน '' """
+    return MIME_TO_EXT.get((content_type or "").lower().strip(), "")
+
+
+def ext_from_magic(payload: bytes) -> str:
+    """ชั้น ③ — เดานามสกุลจาก magic bytes · ไม่รู้จักคืน '' """
+    if not payload:
+        return ""
+    head = payload[:16]
+    for sig, ext in _MAGIC:
+        if head.startswith(sig):
+            return ext
+    return ""
+
+
+def attachment_ext(part) -> str:
+    """
+    หานามสกุลของ email part หนึ่งชิ้น ไล่ 3 ชั้น — คืน '' ถ้าไม่ใช่ไฟล์แนบ/หาไม่ได้เลย
+    ใช้ร่วมกันทั้งตอนเทรนและตอน serve (อย่าเขียนตรรกะนี้ซ้ำที่อื่น)
+    """
+    # ① ชื่อไฟล์ — get_filename() ของ Python ดูให้แล้วทั้ง Content-Disposition:filename= และ Content-Type:name=
+    fn = part.get_filename()
+    if fn:
+        ext = os.path.splitext(fn)[1].lower()
+        if ext:
+            return ext
+
+    ct = (part.get_content_type() or "").lower()
+    disp = str(part.get("Content-Disposition") or "").lower()
+    # ไม่ใช่ไฟล์แนบ (เป็นเนื้อเมล) -> ข้าม
+    if ct.startswith("multipart/"):
+        return ""
+    if not ("attachment" in disp or ct in MIME_TO_EXT):
+        return ""
+
+    # ② MIME
+    ext = ext_from_mime(ct)
+    if ext:
+        return ext
+
+    # ③ magic bytes — ทำเฉพาะตอนสองชั้นบนตอบไม่ได้ (ผู้โจมตีตั้งใจซ่อน)
+    try:
+        payload = part.get_payload(decode=True)
+        if payload and len(payload) <= _MAGIC_MAX_BYTES:
+            ext = ext_from_magic(payload)
+            if ext:
+                return ext
+    except Exception:
+        pass
+
+    # เป็นไฟล์แนบแน่ๆ แต่ระบุชนิดไม่ได้ -> ทำเครื่องหมายไว้ ไม่ปล่อยหายเงียบ
+    return ".unknown" if "attachment" in disp else ""
+
+
+class _TextExtractor(HTMLParser):
+    """ดึง visible text จาก HTML (ข้าม <script>/<style>) — แปลง entity ให้อัตโนมัติ"""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self._skip = 0
+        self._parts = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style"):
+            self._skip += 1
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style") and self._skip:
+            self._skip -= 1
+
+    def handle_data(self, data):
+        if not self._skip:
+            self._parts.append(data)
+
+
+def html_to_text(html_str: str) -> str:
+    """strip HTML tag -> plain text (fallback regex ถ้า parser ล้ม)"""
+    if not html_str:
+        return ""
+    try:
+        p = _TextExtractor()
+        p.feed(html_str)
+        return " ".join("".join(p._parts).split())
+    except Exception:
+        return _WS_RE.sub(" ", re.sub(r"<[^>]+>", " ", html_str)).strip()
+
+
+def clean(text) -> str:
+    """collapse whitespace + strip (เหมือน clean_text ตอน train)"""
+    return _WS_RE.sub(" ", str(text or "")).strip()
+
+
+def choose_body(plain: str, html: str) -> str:
+    """เลือก body: text/plain ก่อน ถ้าไม่มีค่อย strip จาก text/html"""
+    b = clean(plain)
+    if b:
+        return b
+    return clean(html_to_text(html))
+
+
+_AUTH_RE = {m: re.compile(r"\b" + m + r"\s*=\s*([a-zA-Z]+)", re.I) for m in ("spf", "dkim", "dmarc")}
+
+
+def parse_authentication_results(headers) -> dict:
+    """
+    อ่านผล SPF/DKIM/DMARC "จริงต่อฉบับ" จาก Authentication-Results header (Proxmox/รับเมลใส่มา)
+    รองรับทั้ง RFC8601 ('dmarc=pass ...') และ Microsoft-style ('spf=none (sender IP is ...)')
+    คืน {'spf','dkim','dmarc'} (ค่า pass/fail/none/softfail/temperror...) — ไม่เจอ = 'none'
+    เอาค่าแรกที่เจอต่อ method (header บนสุด = ของ gateway ที่รับ = น่าเชื่อสุด)
+    """
+    result = {"spf": "none", "dkim": "none", "dmarc": "none"}
+    found = {"spf": False, "dkim": False, "dmarc": False}
+    for h in headers or []:
+        h = str(h)
+        for m, rx in _AUTH_RE.items():
+            if not found[m]:
+                mt = rx.search(h)
+                if mt:
+                    result[m] = mt.group(1).lower()
+                    found[m] = True
+    return result
+
+
+def build_bert_text(subject, body) -> str:
+    """
+    สร้าง input ของ BERT ให้ตรงกับ training เป๊ะ:
+      (subject + ". " + body) -> collapse whitespace -> mask URL
+    body ควรเป็น plain text แล้ว (ผ่าน choose_body มาก่อน)
+    """
+    subj = clean(subject)
+    bod = clean(body)
+    combined = f"{subj}. {bod}".strip()      # ตรงกับ str.cat(sep=". ") ตอน train
+    return URL_RE.sub("[URL]", combined)
+
+
+# =====================================================================
+# ตรวจการปลอมตัวผู้ส่ง (sender spoofing) — ทีม .92 ขอมา 2026-08-10
+#
+# เดิม main.py ส่ง `"sender_spoofing": False` ตายตัว ไม่เคยคำนวณเลย
+# -> กฎ "+4 ถ้า sender_spoofing" ของ .92 เป็น dead code มาตลอด
+#
+# ⚠️ ค่านี้ "ไม่ใช่" feature ของโมเดล (ดู STAGE2_FEATURES) — เพิ่มได้โดยไม่ต้องเทรนใหม่
+#    เป็นสัญญาณดิบให้ฝั่ง rule engine ตัดสินเอง
+#
+# บทเรียนที่เอามาใช้ในไฟล์นี้ (บั๊ก .click/.top ปี 2026-07):
+#    "อย่าเทียบโดเมนด้วย substring" — เทียบที่ระดับโดเมนจดทะเบียน (eTLD+1) เท่านั้น
+# =====================================================================
+
+# TLD หลายส่วน — ต้องมีรายการชัดเจน ห้ามเดาจากจำนวนจุด
+# (ถ้าไม่มีรายการนี้ scb.co.th จะถูกตัดเป็น "co.th" = โดเมนไทยทุกอันกลายเป็นอันเดียวกัน)
+_MULTI_TLD = frozenset((
+    "co.th", "or.th", "ac.th", "go.th", "in.th", "net.th", "mi.th",
+    "co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "net.au", "org.au",
+    "co.jp", "or.jp", "ne.jp", "co.kr", "com.sg", "com.my", "com.cn",
+    "com.hk", "com.tw", "com.br", "com.mx", "co.id", "co.in", "co.nz", "co.za",
+))
+
+FREE_MAILERS = frozenset((
+    "gmail.com", "googlemail.com", "hotmail.com", "hotmail.co.th", "outlook.com",
+    "outlook.co.th", "live.com", "yahoo.com", "yahoo.co.th", "icloud.com",
+    "aol.com", "protonmail.com", "proton.me", "mail.com", "gmx.com", "yandex.com",
+    "163.com", "126.com", "qq.com", "naver.com",
+))
+
+# แบรนด์ที่ถูกปลอมบ่อย -> โดเมนจริงที่ยอมรับได้
+# ⚠️ ใส่เฉพาะคำที่ "เจาะจงพอ" — คำกว้าง ๆ อย่าง "line" / "กรุงเทพ" ทำ false positive มหาศาล
+BRAND_DOMAINS = {
+    "microsoft":      {"microsoft.com", "microsoftonline.com", "office.com", "office365.com",
+                       "live.com", "outlook.com", "sharepointonline.com", "azure.com"},
+    "office 365":     {"microsoft.com", "microsoftonline.com", "office.com", "office365.com"},
+    "onedrive":       {"microsoft.com", "microsoftonline.com", "onedrive.com"},
+    "google":         {"google.com", "gmail.com", "googlemail.com", "youtube.com"},
+    "apple":          {"apple.com", "icloud.com"},
+    "paypal":         {"paypal.com"},
+    "netflix":        {"netflix.com"},
+    "linkedin":       {"linkedin.com"},
+    "facebook":       {"facebook.com", "fb.com", "meta.com"},
+    "instagram":      {"instagram.com", "facebook.com", "meta.com"},
+    "whatsapp":       {"whatsapp.com", "meta.com"},
+    "amazon":         {"amazon.com", "amazon.co.th", "amazonaws.com", "amazon.co.jp"},
+    "dropbox":        {"dropbox.com", "dropboxmail.com"},
+    "docusign":       {"docusign.com", "docusign.net"},
+    "adobe":          {"adobe.com"},
+    "dhl":            {"dhl.com", "dhl.co.th", "dhl.de"},
+    "fedex":          {"fedex.com"},
+    "shopee":         {"shopee.co.th", "shopee.com", "shopee.sg"},
+    "lazada":         {"lazada.co.th", "lazada.com"},
+    "kerry express":  {"kerryexpress.com", "kerrylogistics.com"},
+    # ธนาคาร/สถาบันการเงินไทย
+    "scb":            {"scb.co.th", "scbeasy.com", "scb.com", "scbam.com", "scbs.com"},
+    "ไทยพาณิชย์":      {"scb.co.th", "scbeasy.com", "scbam.com"},
+    "kasikorn":       {"kasikornbank.com", "kasikornsecurities.com", "kasikornasset.com", "kbank.co.th"},
+    "kbank":          {"kasikornbank.com", "kbank.co.th"},
+    "กสิกรไทย":        {"kasikornbank.com", "kasikornsecurities.com", "kasikornasset.com", "kbank.co.th"},
+    "krungthai":      {"krungthai.com", "ktb.co.th", "ktbst.co.th"},
+    "กรุงไทย":         {"krungthai.com", "ktb.co.th"},
+    "bangkok bank":   {"bangkokbank.com", "bbl.co.th"},
+    "ธนาคารกรุงเทพ":   {"bangkokbank.com", "bbl.co.th"},
+    "krungsri":       {"krungsri.com", "krungsriauto.com"},
+    "กรุงศรี":         {"krungsri.com"},
+    "ธนาคารกรุงศรี":   {"krungsri.com"},
+    "ttb bank":       {"ttbbank.com", "tmbbank.com"},
+    "promptpay":      {"promptpay.io", "bot.or.th"},
+    "พร้อมเพย์":       {"bot.or.th"},
+    # ราชการไทย
+    "สรรพากร":         {"rd.go.th"},
+    "revenue department": {"rd.go.th"},
+    "ไปรษณีย์ไทย":     {"thailandpost.co.th", "thailandpost.com"},
+    "thailand post":  {"thailandpost.co.th", "thailandpost.com"},
+    "การไฟฟ้า":        {"mea.or.th", "pea.co.th", "egat.co.th"},
+    "การประปา":        {"mwa.co.th", "pwa.co.th"},
+    "ประกันสังคม":     {"sso.go.th"},
+    "social security": {"sso.go.th"},
+    # เพิ่มตามข้อเสนอทีม .92 (2026-08-17) — รอรายชื่อจริงจาก quarantine ของ PMG/Mailcow มาเสริม
+    "ออมสิน":          {"gsb.or.th"},
+    "gsb":            {"gsb.or.th"},
+    "ธ.ก.ส.":          {"baac.or.th"},
+    "baac":           {"baac.or.th"},
+    "ธกส":            {"baac.or.th"},
+    "ttb":            {"ttbbank.com", "tmbbank.com"},
+    "ทีทีบี":          {"ttbbank.com"},
+    "ais":            {"ais.co.th", "ais.th", "advanc.co.th"},
+    "เอไอเอส":         {"ais.co.th", "ais.th"},
+    "true":           {"truecorp.co.th", "true.th", "trueid.net", "truemoney.com"},
+    "ทรูมูฟ":          {"truecorp.co.th", "true.th"},
+    "dtac":           {"dtac.co.th", "dtac.th"},
+}
+
+# ---------------------------------------------------------------------------
+# 🔴 โดเมนขององค์กรเราเอง — สำคัญที่สุดตามที่ทีม .92 ชี้ (2026-08-17):
+#    "BEC ที่อันตรายที่สุดคือปลอมเป็นคนในองค์กรเอง ไม่ใช่ปลอมเป็นแบรนด์ภายนอก"
+#
+# เดิมกันได้เฉพาะโดเมนที่โผล่ใน `recipient` ของ request นั้น ๆ ซึ่งพลาดได้เมื่อ:
+#    - ส่งหาหลายโดเมนในเครือ (บริษัทลูก)  - recipient เป็น alias/list  - header ไม่ครบ
+# ตั้งค่าใน .env:  PROTECTED_DOMAINS=sammitr.com,sammitr.co.th
+# ---------------------------------------------------------------------------
+PROTECTED_DOMAINS = frozenset(
+    d.strip().lower() for d in os.getenv("PROTECTED_DOMAINS", "").split(",") if d.strip()
+)
+
+# น้ำหนักของแต่ละสัญญาณ (รวมกันแล้ว cap ที่ 100)
+# ตัวที่ ">= SPOOF_THRESHOLD ตัวเดียว" = ยืนยันได้ด้วยตัวเอง
+# ตัวที่น้อยกว่านั้น = ต้องมีสัญญาณอื่นประกอบ (ตั้งใจให้ไม่ fire เดี่ยว ๆ เพราะ false positive สูง)
+SPOOF_WEIGHTS = {
+    "display_name_other_email": 60,   # display name เป็นอีเมลคนละโดเมนกับผู้ส่งจริง
+    "homoglyph_domain":         60,   # โดเมนมีอักษรที่ไม่ใช่ ASCII / punycode
+    "lookalike_domain":         55,   # โดเมนคล้ายแบรนด์จริงมาก (แก้ 1-2 ตัวอักษร)
+    "brand_mismatch":           50,   # อ้างแบรนด์ในชื่อ แต่โดเมนไม่เกี่ยวกับแบรนด์นั้นเลย
+    # อ้างแบรนด์ และ "ชื่อแบรนด์อยู่ในโดเมนผู้ส่งด้วย" (googlealert.com, adobesystems-macromedia.com)
+    # มักเป็นโดเมนในเครือ/พาร์ตเนอร์จริง -> ให้น้ำหนักต่ำ ต้องมีสัญญาณอื่นเสริม
+    "brand_related_domain":     20,
+    "impersonates_recipient_org": 30,  # อ้างชื่อองค์กรผู้รับ แต่ส่งมาจากข้างนอก
+    "freemail_corporate_claim": 20,   # อ้างเป็นบริษัท/หน่วยงาน แต่ส่งจากเมลฟรี
+}
+# >= นี้ -> sender_spoofing = True
+# 🔧 45 -> 50 ตามข้อเสนอทีม .92 (2026-08-17): ที่ 45 ตัว brand_mismatch (แม่นแค่ 30%) ยิงเดี่ยวได้
+#    ทำให้ธง "เมลนี้ปลอมตัว" ผิด 7 ใน 10 ครั้ง · ที่ 50 ตัวที่แม่นกว่า (lookalike 55+) ยังยิงเดี่ยวได้เหมือนเดิม
+SPOOF_THRESHOLD = 50
+
+_DISPLAY_EMAIL_RE = re.compile(r"[\w.+-]+@([\w-]+(?:\.[\w-]+)+)")
+_ASCII_DOMAIN_RE = re.compile(r"^[a-z0-9.-]+$")
+# ตัวเลข/อักษรที่ใช้แทนกันเพื่อลวงตา (paypa1.com, rnicrosoft.com)
+_CONFUSABLE = str.maketrans({"0": "o", "1": "l", "3": "e", "4": "a", "5": "s", "7": "t", "8": "b"})
+_CORP_WORDS = ("co., ltd", "co.,ltd", "company limited", "corporation", "public company",
+               "บริษัท", "จำกัด", "ธนาคาร", "กรม", "สำนักงาน", "department", "helpdesk",
+               "it support", "ฝ่ายบุคคล", "human resource", "hr department", "การเงิน", "บัญชี",
+               "bank", "accounting", "payroll", "security team", "support team",
+               "administrator", "notification")
+
+
+_DOMAIN_JUNK_RE = re.compile(r"[^\w.\-¡-￿]")   # ตัด <>"' ช่องว่าง ฯลฯ (เก็บ non-ASCII ไว้ให้ ② จับ)
+
+
+def registrable_domain(domain: str) -> str:
+    """
+    โดเมนระดับที่จดทะเบียนได้ (eTLD+1) — mail.scb.co.th -> scb.co.th, a.b.evil.xyz -> evil.xyz
+
+    ⚠️ ล้างขยะก่อนเสมอ — ข้อมูลจริงส่งโดเมนติด '>' มา ('sammitr.com>') 1,475/6,939 แถว
+       ถ้าไม่ล้าง 'sammitr.com' กับ 'sammitr.com>' จะกลายเป็นคนละโดเมน = ติดธงปลอมทั้งกอง
+    """
+    d = _DOMAIN_JUNK_RE.sub("", (domain or "").strip().lower()).strip(".")
+    if not d or "." not in d:
+        return d
+    parts = d.split(".")
+    if len(parts) >= 3 and ".".join(parts[-2:]) in _MULTI_TLD:
+        return ".".join(parts[-3:])
+    return ".".join(parts[-2:])
+
+
+def _edit_distance(a: str, b: str, cap: int = 2) -> int:
+    """ระยะแก้ไข (Levenshtein) แบบตัดจบเร็ว — เกิน cap คืน cap+1 พอ"""
+    if abs(len(a) - len(b)) > cap:
+        return cap + 1
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        if min(cur) > cap:
+            return cap + 1
+        prev = cur
+    return prev[-1]
+
+
+def _domain_skeleton(domain: str) -> str:
+    """
+    ลดรูปโดเมนให้เทียบ 'ตาลวง' ได้ — ตัด -/_ และแทนตัวที่หน้าตาเหมือนกัน
+    paypa1 / pay-pal -> paypal · rnicrosoft -> microsoft · vvhatsapp -> whatsapp
+    """
+    name = domain.split(".")[0] if "." in domain else domain
+    name = name.replace("-", "").replace("_", "").translate(_CONFUSABLE)
+    return name.replace("rn", "m").replace("vv", "w")
+
+
+def _is_lookalike(sender_reg: str, target_reg: str) -> bool:
+    """
+    โดเมนผู้ส่งคล้ายโดเมนเป้าหมายจน "ตั้งใจลวง" ไหม (ต้องไม่ใช่โดเมนเดียวกัน)
+
+    ⚠️ เกณฑ์แคบโดยตั้งใจ — วัดบน CEAS_08 (อีเมลปกติ 17,312 ฉบับ) แล้วพบว่าเกณฑ์หลวมทำ FP เพียบ:
+         mail.com ~ gmail.com · email.si ~ gmail.com · unimi.it ~ unimib.it · tbank.hu ~ kbank.co.th
+       ทุกอันเกิดจาก "ต่างกัน 1 ตัวอักษรโดยการเพิ่ม/ลบ" ซึ่งชื่อโดเมนจริงคนละอันก็บังเอิญเป็นแบบนั้นได้
+       การปลอมจริงคือ "แทนที่ตัวอักษรให้ยาวเท่าเดิม" (netflix->netflir) หรือ "ลดรูปแล้วเหมือนเป๊ะ"
+    """
+    if not sender_reg or not target_reg or sender_reg == target_reg:
+        return False
+    s_name, t_name = sender_reg.split(".")[0], target_reg.split(".")[0]
+    if len(t_name) < 5:          # ชื่อสั้นเกินไป (scb, ktb, dhl) — แก้ 1 ตัวก็ชนคำอื่นเต็มไปหมด
+        return False
+    # ① ลดรูปแล้วเหมือนกันเป๊ะ = ตั้งใจลวงชัดเจน (paypa1 / pay-pal / rnicrosoft)
+    if _domain_skeleton(sender_reg) == _domain_skeleton(target_reg):
+        return True
+    # ② "แทนที่ตัวอักษร 1 ตัว โดยความยาวเท่าเดิม" เท่านั้น — เพิ่ม/ลบตัวอักษรไม่นับ (FP สูงเกิน)
+    if len(s_name) != len(t_name) or len(t_name) < 6:
+        return False
+    return _edit_distance(s_name, t_name, cap=1) == 1
+
+
+# ระบบ mailing list / ticket / relay เอา "อีเมลผู้ส่งเดิม" มาใส่ใน display name เป็นเรื่องปกติ
+#   "ysgt@lac.uic.edu (via RT)" <bugs@perl.org>   <- ถูกต้อง ไม่ใช่การปลอม
+# วัดบน CEAS_08: เคสแบบนี้คือ 50 จาก 73 ของ false positive ทั้งหมด
+_RELAY_MARKER_RE = re.compile(r"\bvia\b|\(via|on behalf of|forwarded|mailing list|listserv", re.I)
+
+
+def detect_sender_spoofing(display_name: str, sender_domain: str,
+                           recipient_domain: str = "", reply_to_domain: str = "",
+                           sender_email: str = "") -> dict:
+    """
+    ตรวจว่า "ผู้ส่งพยายามทำให้ดูเป็นคนอื่น" ไหม
+
+    คืน {"spoofing": bool, "score": 0-100, "reasons": [...]}
+      - reasons เป็นรายการรหัสสัญญาณ ให้ฝั่ง .92 ตั้งน้ำหนักเองต่อได้
+      - ไม่รู้จัก/ข้อมูลไม่พอ -> score 0, spoofing False (ไม่เดา)
+
+    ⚠️ ตรวจ "การแอบอ้างตัวตน" เท่านั้น ไม่ได้ตรวจว่า SPF/DKIM ผ่านไหม
+       (อันนั้น PMG ทำแล้วและแม่นกว่า — ดู spf_result/dkim_result ใน raw_signals)
+    """
+    name = (display_name or "").strip()
+    sender_reg = registrable_domain(sender_domain)
+    recip_reg = registrable_domain(recipient_domain)
+    # โดเมนองค์กรเราเอง (จาก .env) + โดเมนผู้รับฉบับนี้ — ใช้ตรวจ BEC ที่ปลอมเป็นคนใน
+    own_domains = {registrable_domain(d) for d in PROTECTED_DOMAINS} - {""}
+    reasons, hits = [], []
+
+    def _hit(code, detail=""):
+        reasons.append(f"{code}:{detail}" if detail else code)
+        hits.append(SPOOF_WEIGHTS[code])
+
+    if not sender_reg:
+        return {"spoofing": False, "score": 0, "reasons": []}
+
+    name_low = name.lower()
+
+    # ① display name เป็น/มีอีเมลของโดเมนอื่น — From: "billing@scb.co.th" <x@evil.xyz>
+    #    ข้ามถ้าเป็น mailing list / relay ที่ประกาศตัวชัดเจน หรือโดเมนนั้นอยู่ในอีเมลผู้ส่งอยู่แล้ว
+    if not _RELAY_MARKER_RE.search(name_low):
+        addr_low = (sender_email or "").lower()
+        for m in _DISPLAY_EMAIL_RE.finditer(name_low):
+            other = registrable_domain(m.group(1))
+            if other and other != sender_reg and other not in addr_low:
+                _hit("display_name_other_email", other)
+                break
+
+    # ② โดเมนมีอักษรตาลวง (ซีริลลิก/กรีก) หรือเป็น punycode
+    if not _ASCII_DOMAIN_RE.match(sender_reg) or sender_reg.startswith("xn--") or ".xn--" in sender_reg:
+        _hit("homoglyph_domain", sender_reg)
+
+    # ③ + ④ เทียบกับแบรนด์ที่ถูกปลอมบ่อย
+    #     ③ โดเมนคล้ายแบรนด์ (typosquatting) — ตรวจทุกฉบับ ไม่ต้องรอให้ชื่อพูดถึงแบรนด์
+    #     ④ ชื่อพูดถึงแบรนด์ แต่โดเมนไม่ใช่ของแบรนด์
+    protected = set()
+    for domains in BRAND_DOMAINS.values():
+        protected |= domains
+    if recip_reg:
+        protected.add(recip_reg)      # ปลอมเป็นโดเมนของผู้รับเองก็นับ
+    protected |= own_domains          # โดเมนองค์กรเราเอง (ตั้งใน .env) — กัน BEC ภายใน
+    # ผู้ส่งเป็นโดเมนจริงของแบรนด์เอง (amazon.co.th, dhl.de) -> ไม่ต้องเทียบ ไม่งั้นชนกันเอง
+    if sender_reg not in protected:
+        for target in protected:
+            if _is_lookalike(sender_reg, target):
+                _hit("lookalike_domain", f"{sender_reg}~{target}")
+                break
+
+    for brand, ok_domains in BRAND_DOMAINS.items():
+        if not _brand_in_name(brand, name_low):
+            continue
+        if sender_reg in ok_domains:
+            break                     # อ้างแบรนด์และเป็นโดเมนแบรนด์จริง -> ปกติ
+        # โดเมนมีชื่อแบรนด์อยู่ด้วยไหม (googlealert.com มี "google") -> มักเป็นของในเครือจริง
+        # วัดแล้ว: อีเมลปกติที่ติดผิด 4/7 เป็นแบบนี้ · ฟิชชิ่งที่จับได้ 0/6 เป็นแบบนี้
+        flat = sender_reg.replace("-", "").replace(".", "")
+        related = brand.replace(" ", "") in flat
+        _hit("brand_related_domain" if related else "brand_mismatch", f"{brand}!={sender_reg}")
+        break
+
+    # ⑤ อ้างชื่อองค์กรของผู้รับ/องค์กรเรา แต่ส่งมาจากข้างนอก (เมล "จากฝ่ายไอทีของคุณ" ยอดฮิต)
+    #    เทียบทั้งโดเมนผู้รับฉบับนี้ และ PROTECTED_DOMAINS (กรณีบริษัทลูก/alias ที่ recipient ไม่บอก)
+    inside = {d for d in ({recip_reg} | own_domains) if d}
+    if inside and sender_reg not in inside:
+        for org in {d.split(".")[0] for d in inside}:
+            if len(org) >= 5 and org in name_low.replace(" ", ""):
+                _hit("impersonates_recipient_org", org)
+                break
+
+    # ⑥ อ้างเป็นองค์กร/แผนก แต่ส่งจากเมลฟรี (เดี่ยว ๆ ไม่พอตัดสิน ตั้งใจให้ต่ำกว่า threshold)
+    if sender_reg in FREE_MAILERS and any(w in name_low for w in _CORP_WORDS):
+        _hit("freemail_corporate_claim", sender_reg)
+
+    score = min(100, sum(hits))
+    return {"spoofing": score >= SPOOF_THRESHOLD, "score": score, "reasons": reasons}
+
+
+def _brand_in_name(brand: str, name_low: str) -> bool:
+    """
+    ชื่อผู้ส่งพูดถึงแบรนด์นี้ไหม — ภาษาอังกฤษต้องเป็น "คำเต็ม" (กัน scb ไปชน scbx/discbrake)
+    ภาษาไทยไม่มีตัวคั่นคำ จึงเทียบแบบ substring ได้ (คำที่ใส่ไว้เจาะจงพออยู่แล้ว)
+    """
+    if brand.isascii():
+        return re.search(r"(?<![a-z0-9])" + re.escape(brand) + r"(?![a-z0-9])", name_low) is not None
+    return brand in name_low
+
+
+def spoofing_from_headers(from_header: str, recipient: str = "", reply_to: str = "") -> dict:
+    """
+    เวอร์ชันที่รับ header ดิบ (ใช้ใน main.py) — แกะ display name / โดเมน ให้เอง
+    From: "SCB Bank" <noreply@random.xyz>  ->  display='SCB Bank', domain='random.xyz'
+    """
+    hdr = (from_header or "").strip()
+    m = re.search(r"<([^>]+)>", hdr)
+    if m:
+        addr = m.group(1)
+        display = hdr[:m.start()].strip().strip('"').strip("'").strip()
+    else:
+        addr, display = hdr, ""
+    sender_domain = addr.split("@")[-1].strip().strip(">").lower() if "@" in addr else ""
+    recip_domain = recipient.split("@")[-1].lower() if "@" in (recipient or "") else ""
+    reply_domain = reply_to.split("@")[-1].strip().strip(">").lower() if "@" in (reply_to or "") else ""
+    return detect_sender_spoofing(display, sender_domain, recip_domain, reply_domain,
+                                  sender_email=addr.strip().strip("<>").lower())

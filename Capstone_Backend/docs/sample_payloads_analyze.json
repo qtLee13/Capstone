@@ -1,0 +1,184 @@
+{
+  "A. อีเมลปกติ (EN) — fast path, ไม่ได้วัด IP": {
+    "raw_signals": {
+      "email_hash": "2286f4342c5fb9d4961a70cc57be1a6340ed89b5aaa7a71936ab71e592591dcc",
+      "message_id": "<meet-2026-08-09@company.com>",
+      "sender_domain": "company.com",
+      "sender_email": "hr@company.com",
+      "recipient": "staff@corp.com",
+      "spf_result": "pass",
+      "dkim_result": "pass",
+      "dmarc_result": "pass",
+      "auth_source": {
+        "spf": "pmg",
+        "dkim": "pmg",
+        "dmarc": "pmg",
+        "sender_ip": "not_checked"
+      },
+      "reply_to_mismatch": false,
+      "sender_spoofing": false,
+      "attachment_type": [],
+      "has_malware": false,
+      "raw_ai_score": 0.0,
+      "raw_link_score": 0.0,
+      "link_confidence": "none",
+      "abuseipdb_score": 0,
+      "abuseipdb_measured": false,
+      "subject": "Team meeting tomorrow",
+      "body_text": "Hi team, reminder about our monthly review meeting tomorrow at 10am in the main room.",
+      "attack_type": "Normal"
+    }
+  },
+  "B. ⭐ ฟิชชิ่ง + ลิงก์ TLD เสี่ยง — abuseipdb_measured=false (เคสที่คุณถาม)": {
+    "raw_signals": {
+      "email_hash": "1677a6b97307e4988358b8e18e5a9b5f8c3fe54ff55a2e17a0a4be1094470d27",
+      "message_id": "<ph-99213@paypa1-verify.top>",
+      "sender_domain": "paypa1-verify.top",
+      "sender_email": "security@paypa1-verify.top",
+      "recipient": "victim@corp.com",
+      "spf_result": "fail",
+      "dkim_result": "fail",
+      "dmarc_result": "fail",
+      "auth_source": {
+        "spf": "pmg",
+        "dkim": "pmg",
+        "dmarc": "pmg",
+        "sender_ip": "pmg"
+      },
+      "reply_to_mismatch": true,
+      "sender_spoofing": false,
+      "attachment_type": [],
+      "has_malware": false,
+      "raw_ai_score": 100.0,
+      "raw_link_score": 70.0,
+      "link_confidence": "suspicious",
+      "abuseipdb_score": 0,
+      "abuseipdb_measured": false,
+      "subject": "Your account has been suspended",
+      "body_text": "Dear customer, your account was suspended. Verify within 24 hours at http://paypa1-verify.top/login or it will be closed permanently.",
+      "attack_type": "Spam (High-Risk Source)"
+    }
+  },
+  "C. ⭐ ลิงก์เดียวกัน แต่ VirusTotal ยืนยัน + วัด IP ได้ (abuse=97)": {
+    "raw_signals": {
+      "email_hash": "1677a6b97307e4988358b8e18e5a9b5f8c3fe54ff55a2e17a0a4be1094470d27",
+      "message_id": "<ph-99213@paypa1-verify.top>",
+      "sender_domain": "paypa1-verify.top",
+      "sender_email": "security@paypa1-verify.top",
+      "recipient": "victim@corp.com",
+      "spf_result": "fail",
+      "dkim_result": "fail",
+      "dmarc_result": "fail",
+      "auth_source": {
+        "spf": "pmg",
+        "dkim": "pmg",
+        "dmarc": "pmg",
+        "sender_ip": "pmg"
+      },
+      "reply_to_mismatch": true,
+      "sender_spoofing": false,
+      "attachment_type": [],
+      "has_malware": false,
+      "raw_ai_score": 100.0,
+      "raw_link_score": 100.0,
+      "link_confidence": "confirmed",
+      "abuseipdb_score": 97,
+      "abuseipdb_measured": true,
+      "subject": "Your account has been suspended",
+      "body_text": "Dear customer, your account was suspended. Verify within 24 hours at http://paypa1-verify.top/login or it will be closed permanently.",
+      "attack_type": "Phishing"
+    }
+  },
+  "D. ไฟล์แนบอันตราย (.exe ซ่อนท้าย .pdf)": {
+    "raw_signals": {
+      "email_hash": "3c44f19872ff2dadee8c785e1dc9eb1550781b6b2bf75f35bd124ecb0d0c479a",
+      "message_id": "<inv-4471@invoice-service.com>",
+      "sender_domain": "invoice-service.com",
+      "sender_email": "billing@invoice-service.com",
+      "recipient": "finance@corp.com",
+      "spf_result": "none",
+      "dkim_result": "none",
+      "dmarc_result": "none",
+      "auth_source": {
+        "spf": "pmg",
+        "dkim": "none",
+        "dmarc": "pmg",
+        "sender_ip": "none"
+      },
+      "reply_to_mismatch": false,
+      "sender_spoofing": false,
+      "attachment_type": [
+        ".exe"
+      ],
+      "has_malware": true,
+      "raw_ai_score": 0.02,
+      "raw_link_score": 0.0,
+      "link_confidence": "none",
+      "abuseipdb_score": 0,
+      "abuseipdb_measured": true,
+      "subject": "Invoice #4471 attached",
+      "body_text": "Please find the attached invoice for payment.",
+      "attack_type": "Malware Attachment"
+    }
+  },
+  "E. 🇹🇭 อีเมลไทยปกติ (เช็คว่า body ไทยไม่เพี้ยน)": {
+    "raw_signals": {
+      "email_hash": "c5fb7895f9c90f0dcee165a9b1f0d624566374c1d92d3f5abef3325d4ddd117f",
+      "message_id": "<th-meet-001@company.co.th>",
+      "sender_domain": "company.co.th",
+      "sender_email": "hr@company.co.th",
+      "recipient": "staff@corp.com",
+      "spf_result": "pass",
+      "dkim_result": "pass",
+      "dmarc_result": "pass",
+      "auth_source": {
+        "spf": "pmg",
+        "dkim": "pmg",
+        "dmarc": "pmg",
+        "sender_ip": "not_checked"
+      },
+      "reply_to_mismatch": false,
+      "sender_spoofing": false,
+      "attachment_type": [],
+      "has_malware": false,
+      "raw_ai_score": 0.32,
+      "raw_link_score": 0.0,
+      "link_confidence": "none",
+      "abuseipdb_score": 0,
+      "abuseipdb_measured": false,
+      "subject": "นัดประชุมเดือนนี้",
+      "body_text": "เรียนทุกท่าน ขอเชิญประชุมสรุปงานประจำเดือนพรุ่งนี้ 10 โมงเช้า ห้องประชุมใหญ่ ครับ",
+      "attack_type": "Normal"
+    }
+  },
+  "F. 🇹🇭 ฟิชชิ่งไทย (พัสดุตกค้าง + TLD .top)": {
+    "raw_signals": {
+      "email_hash": "1facf8f185df272a20dc67bb5832c1624909551a11e29bcbae6b12c0ace635b1",
+      "message_id": "<th-ph-77@thaipost-fee.top>",
+      "sender_domain": "thaipost-fee.top",
+      "sender_email": "service@thaipost-fee.top",
+      "recipient": "user@corp.com",
+      "spf_result": "fail",
+      "dkim_result": "fail",
+      "dmarc_result": "fail",
+      "auth_source": {
+        "spf": "pmg",
+        "dkim": "pmg",
+        "dmarc": "pmg",
+        "sender_ip": "pmg"
+      },
+      "reply_to_mismatch": false,
+      "sender_spoofing": false,
+      "attachment_type": [],
+      "has_malware": false,
+      "raw_ai_score": 99.99,
+      "raw_link_score": 70.0,
+      "link_confidence": "suspicious",
+      "abuseipdb_score": 0,
+      "abuseipdb_measured": false,
+      "subject": "พัสดุของคุณตกค้าง",
+      "body_text": "พัสดุของคุณตกค้างที่ศูนย์คัดแยก กรุณาชำระค่าธรรมเนียมและยืนยันข้อมูลที่ http://thaipost-fee.top/pay เพื่อรับพัสดุ",
+      "attack_type": "Phishing"
+    }
+  }
+}

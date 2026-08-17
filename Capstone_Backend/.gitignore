@@ -1,0 +1,35 @@
+# ===== ความลับ — ห้ามขึ้น git เด็ดขาด =====
+.env
+.env.*
+!.env.example
+*.secret
+*token*.txt
+
+# ===== ข้อมูลบริษัท / ข้อมูลส่วนบุคคล =====
+# อีเมลจริงจากองค์กร (censor แล้วบางส่วน แต่ยังเป็น PII) — ห้ามออกนอกทีม
+datasets/
+*.eml
+logs/*.jsonl
+uvicorn.log
+*.log
+
+# ===== โมเดล (ใหญ่เกิน + ไม่ควรอยู่ใน git) =====
+phishing_bert_model*/
+model_store/
+*.safetensors
+*.pkl
+*.bin
+xgboost_type_classifier.json
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+*.egg-info/
+
+# ===== อื่น ๆ =====
+.vscode/
+.idea/
+.DS_Store
+*.bak_*

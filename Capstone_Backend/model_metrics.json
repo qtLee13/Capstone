@@ -1,0 +1,101 @@
+{
+  "_comment": "ตัวเลขที่วัดจริง ใช้เสิร์ฟที่ GET /model/info — อัปเดตไฟล์นี้ทุกครั้งที่ deploy โมเดลใหม่ (อย่า hardcode ใน main.py)",
+  "stage1": {
+    "name": "phishing_bert_model_v3",
+    "type": "bert-base-multilingual-cased (mBERT)",
+    "task": "phishing vs legitimate",
+    "deployed_at": "2026-07-17",
+    "languages": [
+      "en",
+      "th"
+    ],
+    "previous_version": "phishing_bert_model_v2 (bert-base-uncased, English only)",
+    "evaluations": {
+      "english": {
+        "dataset": "held-out English 3,000 (excluded from v3 training)",
+        "n_test": 3000,
+        "accuracy": 0.998,
+        "precision": 0.9987,
+        "recall": 0.9975,
+        "f1": 0.9981,
+        "fp_rate": 0.0014,
+        "inference_ms": 12.07
+      },
+      "thai": {
+        "dataset": "held-out Thai 800 (400 legit / 400 phishing, machine-translated NLLB-200)",
+        "n_test": 800,
+        "accuracy": 0.9363,
+        "precision": 0.9373,
+        "recall": 0.935,
+        "f1": 0.9362,
+        "fp_rate": 0.0625,
+        "inference_ms": 10.83
+      }
+    },
+    "improvement_note": "ก่อนหน้านี้ (v2 อังกฤษล้วน) ภาษาไทย accuracy 0.7488 และ fp_rate 0.4775 — อ่านไทยไม่ออก (30% ของ token เป็น [UNK])",
+    "caveats": [
+      "ชุดทดสอบภาษาไทยเป็นข้อความแปลด้วยเครื่อง (NLLB-200) ไม่ใช่อีเมลไทยของเจ้าของภาษา ตัวเลขไทยจึงเป็นค่าประมาณ อาจสูงกว่าการใช้งานจริงเล็กน้อย",
+      "ชุดทดสอบภาษาอังกฤษเคยอยู่ในข้อมูลเทรนของ v2 (แต่ไม่อยู่ใน v3) การเทียบอังกฤษจึงเอนเอียงเข้าข้างรุ่นเก่า"
+    ]
+  },
+  "stage2": {
+    "name": "xgboost_type_classifier",
+    "type": "XGBoost",
+    "task": "attack-type classification (4 classes)",
+    "trained_at": "2026-07-22T17:10:12",
+    "n_train_total": 952,
+    "classes": [
+      "Business Email Compromise (BEC)",
+      "Malware Attachment",
+      "Phishing",
+      "Spam (High-Risk Source)"
+    ],
+    "features": [
+      "ai_score",
+      "link_risk",
+      "abuseipdb_score",
+      "reply_to_mismatch",
+      "attachment_risk"
+    ],
+    "evaluations": {
+      "holdout": {
+        "dataset": "stratified 80/20 holdout",
+        "n_train": 761,
+        "n_test": 191,
+        "accuracy": 0.6911,
+        "macro_f1": 0.6871,
+        "weighted_f1_cv": 0.6903,
+        "per_class_f1": {
+          "Business Email Compromise (BEC)": 0.476,
+          "Malware Attachment": 0.889,
+          "Phishing": 0.621,
+          "Spam (High-Risk Source)": 0.763
+        }
+      },
+      "cross_validation": {
+        "dataset": "stratified 5-fold CV on all 952 rows",
+        "weighted_f1": 0.6903,
+        "weighted_f1_std": 0.0273,
+        "macro_f1": 0.6566
+      }
+    },
+    "inference_ms": 0.52,
+    "class_support": {
+      "Spam (High-Risk Source)": 500,
+      "Phishing": 300,
+      "Business Email Compromise (BEC)": 126,
+      "Malware Attachment": 26
+    },
+    "caveats": [
+      "BEC F1 = 0.52 ยังอ่อนที่สุด เพราะ feature ชุดนี้ไม่มีตัวจับ personalization/บริบทองค์กร",
+      "Malware มีตัวอย่างจริงแค่ 26 ฉบับ (ชุดทดสอบ 5) ตัวเลข F1 จึงมีความไม่แน่นอนสูงมาก",
+      "ตัวเลข accuracy/F1 วัดบนชุดที่ทุกฉบับเป็นภัยอยู่แล้ว — ไม่ใช่ความแม่นของทั้งระบบ",
+      "P2 (2026-07-22): ตัด dmarc_fail ออกจาก feature — ข้อมูลเทรนที่วัดได้มีแต่ค่า fail ทั้ง 927 แถว ค่า 0 ที่โมเดลเคยเห็นคือ DNS lookup ล้ม ไม่ใช่ DMARC ผ่าน · คุณภาพเสมอเดิมเชิงสถิติ (CV 0.6891 ±0.028 vs 0.6953 ±0.022)",
+      "ยังไม่มี abuseipdb_missing flag: ตัวอย่าง missing มีแค่ 17/952 (1.8%) ทดสอบแล้วถ้าใส่ flag ระบบจะเปราะมาก (AbuseIPDB ล่ม -> คำทำนายพลิก 52.7% เทียบกับ 2.5% ถ้าไม่ใส่) รอ feedback loop สะสมเคสก่อน",
+      "ข้อจำกัดที่ยังเหลือ: abuseipdb วัดไม่ได้ยังถูกเติมเป็น 0 = เหมือน IP สะอาด (รู้ตัว ยอมรับไว้ชั่วคราว)",
+      "2026-07-22: แก้บั๊กการเทียบ TLD ของ link_risk (เดิมเทียบแบบ substring -> us.click.yahoo.com/topgear.com ถูกตีเป็นลิงก์เสี่ยง) · กระทบชุดเทรน 1/952 แถว จึงเทรนใหม่ให้ตรงกัน"
+    ],
+    "active_version": "xgb_20260722_171012",
+    "feature_schema": "v2"
+  }
+}
