@@ -109,7 +109,7 @@ scp -q docs/sample_spoof_test.json "$VM:/tmp/spoof_test.json"
 # tr -d '\r' เพราะ .env บน VM เป็น CRLF — ไม่ตัดแล้ว token จะมี \r ทำให้ header พัง
 ssh "$VM" "cd $DEST && TOKEN=\$(grep '^API_SECRET_KEY=' .env | cut -d= -f2- | tr -d '\r\n') && \
   curl -s -X POST http://127.0.0.1:8000/parse \
-    -H \"X-API-Key: \$TOKEN\" -H 'Content-Type: application/json' \
+    -H \"X-Security-Token: \$TOKEN\" -H 'Content-Type: application/json' \
     -d @/tmp/spoof_test.json \
   | python3 -c \"
 import sys, json

@@ -74,6 +74,11 @@ class EmailRequest(BaseModel):
 class ParseRequest(BaseModel):
     # ใช้กับ POST /parse — รับ raw .eml อย่างเดียว (ไม่มี auth signal เพราะ /parse ไม่ verify อะไร แค่แกะ)
     text: str = Field(..., max_length=500_000)
+    # 🐛 2026-08-24: ตอนเพิ่ม sender_spoofing เรียก req.recipient โดยไม่ได้ประกาศ field นี้
+    #    -> Pydantic ทิ้ง field ที่ไม่ประกาศทิ้งเงียบ ๆ -> AttributeError ตอน runtime = /parse พัง 500 ทุก request
+    #    (กับดักเดิมของโปรเจกต์นี้: field มาถึงแต่ถูกมองข้าม — ครั้งนี้กลับด้าน คือโค้ดเรียกของที่ไม่มี)
+    #    ไม่บังคับส่ง เพราะ caller เดิมของ /parse ไม่เคยส่ง recipient มา -> ต้อง backward-compatible
+    recipient: str = ""
 
 # ================= Database Setup (SQLAlchemy) =================
 from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, DateTime, func

@@ -138,7 +138,7 @@ false positive = 9 / 17,312 = 0.052%
 
 ```bash
 curl -s -X POST http://<AI>:8000/parse \
-  -H "X-API-Key: $TOKEN" -H "Content-Type: application/json" \
+  -H "X-Security-Token: $TOKEN" -H "Content-Type: application/json" \
   -d '{"text":"From: \"PayPal Service\" <service@paypa1.com>\r\nTo: staff@corp.co.th\r\nSubject: verify\r\nReceived: from x ([203.0.113.9])\r\n\r\nhi\r\n","recipient":"staff@corp.co.th"}' \
   | python3 -m json.tool
 ```
