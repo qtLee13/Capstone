@@ -16,6 +16,12 @@ set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
 PORT="${PORT:-8000}"
+# BIND_HOST: env > .env > 127.0.0.1
+# อ่านจาก .env ด้วย เพื่อให้ restart ครั้งหน้า/หลัง update ยัง bind ที่เดิม ไม่ต้องจำใส่ทุกครั้ง
+if [[ -z "${BIND_HOST:-}" && -f .env ]]; then
+  BIND_HOST="$(grep -E '^BIND_HOST=' .env | head -1 | cut -d= -f2- | tr -d '
+ 	')"
+fi
 BIND_HOST="${BIND_HOST:-127.0.0.1}"
 
 pkill -f "uvicorn main:app" 2>/dev/null
