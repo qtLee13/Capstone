@@ -126,7 +126,7 @@ else
   echo "  ⚠️ ไม่มีสิทธิ์ sudo -> ใช้ run_server.sh (รีบูตแล้วต้องสั่งเองใหม่)"
   echo "     ขอ sudo จากเจ้าของเครื่องจะดีกว่า — จำเป็นทั้ง systemd, ZeroTier และ firewall"
   # เรียกผ่านไฟล์ ไม่ใช่บรรทัด ssh — กัน pkill ฆ่า shell ตัวเอง (ดูหมายเหตุใน run_server.sh)
-  $SSH "BIND_HOST=${BIND_HOST:-127.0.0.1} bash $DEST/deploy/run_server.sh"
+  $SSH "$([[ -n "${BIND_HOST:-}" ]] && echo "BIND_HOST=$BIND_HOST ")bash $DEST/deploy/run_server.sh"
 fi
 
 echo "===== 8) health-check ====="

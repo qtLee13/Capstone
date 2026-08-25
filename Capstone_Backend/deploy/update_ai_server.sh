@@ -24,7 +24,11 @@ SRC="${SRC:-/home/$USER/capstone_src}"
 BRANCH="${BRANCH:-hord}"
 SUBDIR="${SUBDIR:-Capstone_Backend}"
 MODEL="${MODEL:-0}"
-BIND_HOST="${BIND_HOST:-127.0.0.1}"
+# ไม่ตั้ง default ที่นี่ — ถ้าส่ง BIND_HOST ไปเสมอ มันจะทับค่าใน .env ของเซิร์ฟเวอร์
+# (env ชนะ .env) ทำให้ตั้งค่าถาวรใน .env ไม่มีผล ต้องพิมพ์ใหม่ทุกครั้ง
+# ส่งไปเฉพาะตอนผู้ใช้ระบุมาเองเท่านั้น เช่น BIND_HOST=0.0.0.0 bash deploy/update_ai_server.sh
+BIND_PREFIX=""
+[[ -n "${BIND_HOST:-}" ]] && BIND_PREFIX="BIND_HOST=$BIND_HOST "
 SSH="ssh -p $PORT_SSH $USER@$HOST"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$HERE"
@@ -65,7 +69,7 @@ fi
 
 echo "===== 4) restart + health-check ====="
 # run_server.sh เช็ค /health ให้ในตัวแล้ว และ exit 1 ถ้าไม่ขึ้น
-if $SSH "BIND_HOST=$BIND_HOST bash $DEST/deploy/run_server.sh"; then
+if $SSH "${BIND_PREFIX}bash $DEST/deploy/run_server.sh"; then
   echo ""
   echo "✅ อัปเดตสำเร็จ"
 else
@@ -73,7 +77,7 @@ else
   echo "  ❌ API ไม่ตอบหลังอัปเดต — ย้อนกลับ commit เดิม"
   $SSH "set -e; cd $SRC && git reset -q --hard \$(cat ~/.last_good_commit) && \
         cd $SRC/$SUBDIR && cp -f $CODE $DEST/ 2>/dev/null || true; \
-        BIND_HOST=$BIND_HOST bash $DEST/deploy/run_server.sh || tail -30 $DEST/uvicorn.log"
+        ${BIND_PREFIX}bash $DEST/deploy/run_server.sh || tail -30 $DEST/uvicorn.log"
   echo "  ย้อนกลับแล้ว — ดู log ด้านบนว่าโค้ดใหม่พังเพราะอะไร"
   exit 1
 fi
