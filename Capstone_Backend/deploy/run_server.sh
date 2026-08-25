@@ -24,6 +24,15 @@ if [[ -z "${BIND_HOST:-}" && -f .env ]]; then
 fi
 BIND_HOST="${BIND_HOST:-127.0.0.1}"
 
+# ที่อยู่ที่ใช้ "เช็คสุขภาพ" ต้องตามที่ bind จริง
+# 🐛 เดิม hardcode 127.0.0.1 -> พอ bind เป็น IP ของ LAN (ให้ PMG เรียกได้) health-check ยิงไม่ถึง
+#    สคริปต์เลยรายงานว่าสตาร์ทไม่สำเร็จ ทั้งที่ API ทำงานปกติ (false alarm ที่จะทำให้ rollback มั่ว)
+if [[ "$BIND_HOST" == "0.0.0.0" || "$BIND_HOST" == "::" ]]; then
+  HEALTH_HOST="127.0.0.1"
+else
+  HEALTH_HOST="$BIND_HOST"
+fi
+
 pkill -f "uvicorn main:app" 2>/dev/null
 sleep 2
 
@@ -42,8 +51,8 @@ fi
 
 # รอโมเดลโหลด (mBERT + XGBoost ใช้เวลาหลายวินาที) แล้วเช็คว่าตอบจริง
 for i in $(seq 1 18); do
-  if curl -sf --max-time 5 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
-    echo "  ✅ API ตอบแล้ว: $(curl -s http://127.0.0.1:$PORT/health)"
+  if curl -sf --max-time 5 "http://$HEALTH_HOST:$PORT/health" >/dev/null 2>&1; then
+    echo "  ✅ API ตอบแล้ว: $(curl -s http://$HEALTH_HOST:$PORT/health)"
     exit 0
   fi
   sleep 5
