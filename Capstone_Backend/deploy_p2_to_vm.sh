@@ -75,31 +75,19 @@ else
   exit 2
 fi
 
-echo "===== 5) restart uvicorn (venv, ไม่ใช่ systemd) ====="
-# service รันด้วย: source venv/bin/activate; uvicorn main:app --host 0.0.0.0 --port 8000
-# ปิดตัวเก่า แล้วเปิดใหม่แบบ background (subshell + nohup ให้ ssh หลุดออกได้)
-# 🐛 บั๊กที่เจอ 2026-08-17: เดิมใช้ pkill -f 'uvicorn main:app' ตรง ๆ
-#    -> command line ของ ssh shell ตัวนี้เองก็มีข้อความ "uvicorn main:app" อยู่
-#       pkill เลย "ฆ่า shell ตัวเอง" ก่อนได้สั่งเปิดตัวใหม่ = uvicorn ดับ ไม่มีอะไรขึ้นมาแทน
-#       แถม ssh ตายกลางคัน -> exit code != 0 -> set -e ทำให้สคริปต์จบเงียบ ๆ ที่ขั้นนี้
-#    แก้: เขียน pattern เป็น 'uvicorn [m]ain:app' — regex ยังตรงกับ process จริง
-#         แต่ "ไม่ตรงกับบรรทัดคำสั่งของตัวเอง" (ที่มีวงเล็บอยู่) · + || true กัน set -e
-#    setsid + </dev/null ให้ uvicorn หลุดจาก session ของ ssh จริง ๆ (ไม่โดน SIGHUP ตอน ssh ปิด)
-ssh "$VM" "cd $DEST && { pkill -f 'uvicorn [m]ain:app' 2>/dev/null || true; }; sleep 1; \
-  source venv/bin/activate && \
-  setsid nohup uvicorn main:app --host 0.0.0.0 --port 8000 > uvicorn.log 2>&1 < /dev/null & \
-  sleep 5; \
-  pgrep -f 'uvicorn [m]ain:app' >/dev/null && echo 'uvicorn เริ่มแล้ว (log: $DEST/uvicorn.log)' \
-    || { echo '❌ uvicorn ไม่ขึ้น — 40 บรรทัดท้ายของ log:'; tail -40 $DEST/uvicorn.log; exit 1; }"
+echo "===== 5) restart (ผ่าน deploy/run_server.sh) ====="
+# 🐛 บั๊กที่เจอ 2 รอบ (2026-08-17 และ 2026-08-24): เขียน pkill กับคำสั่งสตาร์ท uvicorn
+#    ไว้ในบรรทัด ssh เดียวกัน -> pkill -f เจอข้อความ "uvicorn main:app" ในบรรทัดของตัวเอง
+#    แล้วฆ่า shell ตัวเองก่อนได้สตาร์ท = uvicorn ดับ ไม่มี log ไม่มี output สคริปต์จบเงียบ
+#    การใส่วงเล็บ [m] แก้ได้แค่ตัว pattern เอง กันคำสั่งสตาร์ทในบรรทัดเดียวกันไม่ได้
+#    -> ย้ายไปไว้ในไฟล์ deploy/run_server.sh บรรทัด ssh จะได้ไม่มีคำว่า uvicorn เลย
+scp -q deploy/run_server.sh "$VM:$DEST/deploy/run_server.sh" 2>/dev/null || {
+  ssh "$VM" "mkdir -p $DEST/deploy"; scp -q deploy/run_server.sh "$VM:$DEST/deploy/run_server.sh"; }
+ssh "$VM" "chmod +x $DEST/deploy/run_server.sh && BIND_HOST=0.0.0.0 bash $DEST/deploy/run_server.sh"
 
-echo "===== 6) health-check ====="
-# โมเดล (mBERT + XGBoost) ใช้เวลาโหลดหลายวินาที — ต้องวนรอ ไม่ใช่ยิงครั้งเดียวแล้วสรุปว่าล้ม
-ssh "$VM" "for i in \$(seq 1 12); do \
-    out=\$(curl -s --max-time 5 http://127.0.0.1:8000/model/info 2>/dev/null); \
-    if [ -n \"\$out\" ]; then echo \"\$out\" | head -c 400; echo; echo '  ✅ API ตอบแล้ว'; exit 0; fi; \
-    echo \"  ...รอโมเดลโหลด (\$i/12)\"; sleep 5; \
-  done; \
-  echo '❌ API ไม่ตอบใน 60 วิ — 40 บรรทัดท้ายของ log:'; tail -40 $DEST/uvicorn.log; exit 1"
+echo "===== 6) ดูข้อมูลโมเดลที่ใช้อยู่ ====="
+# (run_server.sh เช็ค /health + รอโมเดลโหลดให้แล้วในขั้น 5)
+ssh "$VM" "curl -s http://127.0.0.1:8000/model/info | head -c 400; echo"
 echo ""
 
 echo "===== 7) เช็ค sender_spoofing ทำงานจริง ====="

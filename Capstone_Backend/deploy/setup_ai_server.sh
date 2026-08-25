@@ -20,6 +20,8 @@ USER="${USER:?ต้องระบุ username: USER=xxx bash deploy/setup_ai_s
 DEST="${DEST:-/home/$USER/ai_project}"
 REPO="${REPO:-https://github.com/qtLee13/Capstone.git}"
 BRANCH="${BRANCH:-hord}"
+SRC="${SRC:-/home/$USER/capstone_src}"
+SUBDIR="${SUBDIR:-Capstone_Backend}"
 SSH="ssh -p $PORT $USER@$HOST"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$HERE"
@@ -52,12 +54,10 @@ $SSH "echo '  OS      :' \$(lsb_release -ds 2>/dev/null || cat /etc/os-release |
        echo '  Disk ว่าง:' \$(df -h / | awk 'NR==2{print \$4}'); \
        echo '  Python  :' \$(python3 --version)"
 
-echo "===== 3) clone โค้ดจาก git ====="
-$SSH "if [ -d $DEST/.git ]; then cd $DEST && git fetch origin $BRANCH && git checkout $BRANCH && git pull --ff-only; \
-      else git clone -b $BRANCH $REPO /tmp/_capstone && mkdir -p $DEST && \
-           cp -r /tmp/_capstone/Capstone_Backend/. $DEST/ && rm -rf /tmp/_capstone && \
-           cd $DEST && git init -q && git remote add origin $REPO 2>/dev/null || true; fi; \
-      echo '  โค้ดพร้อมที่ $DEST'"
+echo "===== 3) clone โค้ดจาก git (แยก src ออกจากที่รันจริง) ====="
+# ~/capstone_src = repo ทั้งก้อน · ~/ai_project = ที่รันจริง (โมเดล/.env/venv/log)
+# เดิม git init ใน ai_project แล้ว pull -> git จะกาง repo ทั้งก้อนทับ (รวม capstone-dashboard/) = ผิด
+$SSH "set -e;   if [ -d $SRC/.git ]; then cd $SRC && git fetch -q origin $BRANCH && git reset -q --hard origin/$BRANCH;   else rm -rf $SRC && git clone -q -b $BRANCH $REPO $SRC; fi;   mkdir -p $DEST/deploy $DEST/docs $DEST/logs;   cd $SRC/$SUBDIR && cp -f main.py email_preprocess.py risk_score.py .env.example $DEST/ &&   cp -rf deploy/. $DEST/deploy/ && cp -rf docs/. $DEST/docs/ && chmod +x $DEST/deploy/*.sh;   echo '  โค้ดพร้อมที่ $DEST (ต้นทาง: $SRC)' && cd $SRC && git log -1 --format='  commit: %h %s'"
 
 echo "===== 4) venv + torch เวอร์ชัน CPU (สำคัญ: เล็กกว่า CUDA build 4 GB) ====="
 $SSH "cd $DEST && python3 -m venv venv 2>/dev/null; source venv/bin/activate && \
@@ -102,7 +102,7 @@ else
   echo "    ZT_NETWORK=<network id> USER=$USER bash deploy/setup_ai_server.sh"
 fi
 
-echo "===== 7) systemd service (รีบูตแล้วขึ้นเอง · restart คำสั่งเดียว) ====="
+echo "===== 7) ตั้งวิธีรัน ====="
 if $SSH "sudo -n true 2>/dev/null"; then
   $SSH "sudo tee /etc/systemd/system/ai-model.service >/dev/null <<UNIT
 [Unit]
@@ -121,14 +121,12 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 UNIT
-  sudo systemctl daemon-reload && sudo systemctl enable --now ai-model && sleep 8 && \
-  sudo systemctl is-active ai-model && echo '  ✅ service ทำงานแล้ว'"
-  echo "  หมายเหตุ: bind 127.0.0.1 (ไม่ใช่ 0.0.0.0) = คนนอกยิงตรงไม่ได้"
+  sudo systemctl daemon-reload && sudo systemctl enable --now ai-model && echo '  ✅ systemd — รีบูตแล้วขึ้นเอง'"
 else
-  echo "  ⚠️ ไม่มีสิทธิ์ sudo — ใช้วิธี nohup แทน (รีบูตแล้วต้องสั่งเองใหม่)"
-  $SSH "cd $DEST && { pkill -f 'uvicorn [m]ain:app' || true; }; sleep 1; source venv/bin/activate && \
-        setsid nohup uvicorn main:app --host 127.0.0.1 --port 8000 > uvicorn.log 2>&1 </dev/null & \
-        sleep 8; pgrep -f 'uvicorn [m]ain:app' >/dev/null && echo '  ✅ uvicorn ขึ้นแล้ว' || tail -30 uvicorn.log"
+  echo "  ⚠️ ไม่มีสิทธิ์ sudo -> ใช้ run_server.sh (รีบูตแล้วต้องสั่งเองใหม่)"
+  echo "     ขอ sudo จากเจ้าของเครื่องจะดีกว่า — จำเป็นทั้ง systemd, ZeroTier และ firewall"
+  # เรียกผ่านไฟล์ ไม่ใช่บรรทัด ssh — กัน pkill ฆ่า shell ตัวเอง (ดูหมายเหตุใน run_server.sh)
+  $SSH "BIND_HOST=${BIND_HOST:-127.0.0.1} bash $DEST/deploy/run_server.sh"
 fi
 
 echo "===== 8) health-check ====="
