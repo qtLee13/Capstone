@@ -128,7 +128,14 @@ if not API_SECRET_KEY:
 # ระหว่างหมุน token: ตั้ง API_SECRET_KEY = ตัวใหม่ · API_SECRET_KEY_OLD = ตัวเก่า (ชั่วคราว)
 # AI จะรับได้ทั้งคู่ -> แต่ละทีม (Gateway/Dashboard/.92) ค่อยย้ายมา token ใหม่ทีละเครื่อง ไม่มี downtime
 # ทุกครั้งที่ยังมีใครใช้ตัวเก่า จะ log WARNING -> พอ log เงียบ = ทุกคนย้ายครบ ค่อยลบ API_SECRET_KEY_OLD ออก
-API_SECRET_KEY_OLD = os.getenv("API_SECRET_KEY_OLD", "")
+API_SECRET_KEY_OLD = os.getenv("API_SECRET_KEY_OLD", "").strip()
+# 🐛 .env.example เคยเขียนคอมเมนต์ต่อท้ายบรรทัดเดียวกัน -> คนคัดลอกไปทำ .env แล้วได้
+#    ค่าเป็นข้อความคอมเมนต์ภาษาไทยทั้งก้อน · ระบบเห็นเป็น "อยู่ในโหมดหมุน token" ทั้งที่ไม่ใช่
+#    ค่าที่ขึ้นต้นด้วย # ไม่มีทางเป็น token -> ทิ้ง แล้วตะโกนบอกให้ไปแก้ .env
+if API_SECRET_KEY_OLD.startswith("#"):
+    logger.error("!!! API_SECRET_KEY_OLD ใน .env เป็นคอมเมนต์ ไม่ใช่ token — ไม่ใช้ค่านี้ "
+                 "ให้ลบบรรทัดนั้นทิ้ง หรือใส่ token เก่าจริง ๆ (คอมเมนต์ต้องอยู่คนละบรรทัด)")
+    API_SECRET_KEY_OLD = ""
 if API_SECRET_KEY_OLD:
     logger.warning("⏳ โหมดหมุน token: ยังรับ API_SECRET_KEY_OLD อยู่ชั่วคราว "
                    "— เมื่อทุกทีมย้ายมา token ใหม่แล้ว (ไม่มี log 'ใช้ token เก่า') ให้ลบบรรทัดนี้ออกจาก .env")
@@ -422,11 +429,24 @@ def check_link_risk(text: str):
 API_KEY_NAME   = "X-Security-Token"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
 
+def _same_token(given: str, expected: str) -> bool:
+    """เทียบ token แบบ constant-time กัน timing attack
+
+    🐛 2026-08-25: เดิมส่ง str เข้า compare_digest ตรง ๆ -> ถ้าฝั่งใดมีอักขระนอก ASCII
+       Python โยน TypeError ทันที = /analyze ตอบ 500 ทุก request (PMG เจอ 3 วัน)
+       ต้นเหตุจริงคือ .env รับคอมเมนต์ภาษาไทยมาเป็นค่า แต่ประเด็นคือ
+       "ค่า config ที่ผิดรูป ไม่ควรทำให้ API ล้ม ควรได้ 403 ตามปกติ"
+       -> encode เป็น bytes ก่อนเสมอ (UTF-8 เทียบ byte ต่อ byte ได้ทุกภาษา)
+    """
+    try:
+        return secrets.compare_digest(given.encode("utf-8"), expected.encode("utf-8"))
+    except Exception:
+        return False
+
 def verify_api_key(api_key: str = Security(api_key_header)):
-    # compare_digest = เทียบแบบ constant-time กัน timing attack (ดีกว่า != เดิม)
-    if secrets.compare_digest(api_key, API_SECRET_KEY):
+    if _same_token(api_key, API_SECRET_KEY):
         return
-    if API_SECRET_KEY_OLD and secrets.compare_digest(api_key, API_SECRET_KEY_OLD):
+    if API_SECRET_KEY_OLD and _same_token(api_key, API_SECRET_KEY_OLD):
         # ยังใช้ token เก่าอยู่ — ผ่านได้ (ช่วง grace) แต่ดังไว้ให้รู้ว่ายังมีคนไม่ย้าย
         logger.warning("⚠️ มี request ใช้ token เก่า (API_SECRET_KEY_OLD) — ทีมนี้ยังไม่ย้ายมา token ใหม่")
         return
