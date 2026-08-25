@@ -30,7 +30,16 @@ mkdir -p "$PROJ/logs"
 if [[ -f "$LOG" ]] && [[ "$(stat -c %s "$LOG" 2>/dev/null || echo 0)" -gt 1048576 ]]; then
   tail -200 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
 fi
+
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
+
+# uvicorn.log ของ process ที่รันยาว ๆ โตได้ไม่จำกัด — ดิสก์เต็ม = API พังแบบหาสาเหตุยาก
+# ตัดได้ปลอดภัยเพราะ run_server.sh เปิดไฟล์แบบ append (>>) : fd จะเขียนต่อท้ายเสมอ ไม่เกิดไฟล์ sparse
+UVLOG="$PROJ/uvicorn.log"
+if [[ -f "$UVLOG" ]] && [[ "$(stat -c %s "$UVLOG" 2>/dev/null || echo 0)" -gt 52428800 ]]; then
+  tail -c 5000000 "$UVLOG" > "$UVLOG.keep" && cat "$UVLOG.keep" > "$UVLOG" && rm -f "$UVLOG.keep"
+  echo "$(ts) ✂️ ตัด uvicorn.log (เกิน 50MB)" >> "$LOG"
+fi
 
 # กันสองตัวชนกัน (cron รอบก่อนยังปลุกไม่เสร็จ รอบใหม่มาอีก)
 exec 9>"$PROJ/logs/.watchdog.lock"

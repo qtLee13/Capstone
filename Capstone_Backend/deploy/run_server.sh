@@ -36,8 +36,21 @@ fi
 pkill -f "uvicorn main:app" 2>/dev/null
 sleep 2
 
+# 🐛 2026-08-25: เดิมสตาร์ทด้วย "> uvicorn.log" = ทับทิ้งทุกครั้งที่ restart
+#    วันนั้น PMG เจอ /analyze ตอบ 500 เวลา 15:25 UTC พอเรา restart 15:31 traceback หายเกลี้ยง
+#    สืบสาเหตุไม่ได้เลย -> "การ restart เพื่อแก้ปัญหา ไปทำลายหลักฐานของปัญหานั้นเอง"
+#    แก้: หมุนเก็บของเก่าไว้ 5 รอบ (uvicorn.log.1 = รอบก่อนหน้า) ก่อนเริ่มรอบใหม่
+if [[ -s uvicorn.log ]]; then
+  for i in 4 3 2 1; do
+    [[ -f "uvicorn.log.$i" ]] && mv -f "uvicorn.log.$i" "uvicorn.log.$((i+1))"
+  done
+  mv -f uvicorn.log uvicorn.log.1
+fi
+
+# ใช้ >> (append) ไม่ใช่ > : เปิดแบบ append แล้วใครมา truncate ทีหลังก็ปลอดภัย
+# (ถ้าเปิดด้วย > แล้วโดน truncate ระหว่างรัน fd ยังจำ offset เดิม -> ได้ไฟล์ sparse ใหญ่หลอก ๆ)
 setsid nohup venv/bin/uvicorn main:app --host "$BIND_HOST" --port "$PORT" \
-  > uvicorn.log 2>&1 < /dev/null &
+  >> uvicorn.log 2>&1 < /dev/null &
 disown 2>/dev/null || true
 
 sleep 3

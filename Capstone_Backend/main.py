@@ -18,11 +18,13 @@ import threading
 import time
 import unicodedata
 import logging
+import traceback
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, wait as futures_wait
 
 from fastapi import Depends, FastAPI, HTTPException, Security, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -48,6 +50,27 @@ logger = logging.getLogger(__name__)
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI()
 app.state.limiter = limiter
+
+# ---- ดัก 500 ที่ไม่มีใครดัก ----------------------------------------------------
+# 🐛 2026-08-25: PMG แจ้งว่า POST /analyze ตอบ 500 ติดกัน 3 ครั้ง แต่ฝั่งเราสืบไม่ได้เลย
+#    เพราะ (ก) FastAPI default ตอบแค่ข้อความ "Internal Server Error" ไม่มีตัวอ้างอิง
+#         (ข) traceback ไปอยู่ใน uvicorn.log ที่โดน restart ทับทิ้ง
+#    -> ตอบ request_id กลับไปด้วย เวลาทีมอื่นแจ้งปัญหาจะได้แนบ id มา แล้วเรา grep เจอทันที
+#    ⚠️ ห้ามหลุดรายละเอียด exception ออกไปใน response (เป็นช่องรั่วข้อมูลภายใน) — ลง log ฝั่งเราเท่านั้น
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    rid = secrets.token_hex(4)
+    client = request.client.host if request.client else "?"
+    logger.error(
+        f"[500 rid={rid}] {request.method} {request.url.path} จาก {client} — "
+        f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"error": "internal_error", "request_id": rid,
+                 "message": "AI server ทำงานผิดพลาด — แจ้งทีม AI พร้อม request_id นี้"},
+    )
+
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
