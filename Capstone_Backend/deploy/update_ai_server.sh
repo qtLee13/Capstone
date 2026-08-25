@@ -43,6 +43,10 @@ if [[ -n "$(git status --porcelain -- . 2>/dev/null | grep -vE '^\?\?' || true)"
   read -rp "  ไปต่อไหม? (y/N) " a; [[ "$a" == "y" ]] || exit 1
 fi
 
+# บอก watchdog ว่ากำลัง deploy อยู่ อย่าเพิ่งปลุกแข่ง (ไฟล์นี้หมดอายุเองใน 10 นาที)
+$SSH "touch $DEST/.deploying" 2>/dev/null || true
+trap '$SSH "rm -f $DEST/.deploying" 2>/dev/null || true' EXIT
+
 echo "===== 1) จำ commit ปัจจุบันไว้ (เผื่อย้อนกลับ) ====="
 $SSH "cd $SRC 2>/dev/null && git rev-parse --short HEAD > ~/.last_good_commit 2>/dev/null || echo 'ยังไม่มี src'; \
       echo '  commit ก่อนอัปเดต:' \$(cat ~/.last_good_commit 2>/dev/null || echo '-')"
