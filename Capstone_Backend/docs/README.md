@@ -11,6 +11,8 @@
 | [FOR_dashboard_team.md](FOR_dashboard_team.md) | **Dashboard** | 4 บั๊กต้องแก้ + ข้อมูล/endpoint ที่มีแล้วแต่ยังไม่แสดง (หน้าโมเดล, quarantine, feedback) |
 | [FOR_storage_team.md](FOR_storage_team.md) | **Storage (.92)** | 1 บั๊ก (`Spear Phishing`) + ขอเก็บ `reasons` ลง DB + field ที่ตกหล่นใน `/assess` |
 | [MIGRATION_to_new_ai_server.md](MIGRATION_to_new_ai_server.md) | **ทุกทีม** | 🔴 **AI ย้ายเครื่อง** — ต้องเปลี่ยน base URL + token · ขอความเห็นเรื่อง ZeroTier vs เปิด port |
+| [FOR_storage_attack_evidence.md](FOR_storage_attack_evidence.md) | **Storage (.92)** | 🆕 `attack_evidence` 20 ตัวแปร + `attack_type_v2` พร้อมใช้ · แก้ 3 จุดในเอกสาร SCORING (`impersonates_recipient_org` 0% = วัดไม่ได้ ไม่ใช่แม่น 0%) |
+| [REPLY_to_dashboard_2026-08-26.md](REPLY_to_dashboard_2026-08-26.md) | **Dashboard** | 🆕 ตอบ 4 คำถาม · AI ย้ายจาก .94 แล้ว · bind ไม่ใช่ 127.0.0.1 · feedback-label ใช้ได้ · retrain ยังไม่มี (404) |
 | [REPLY2_to_storage_spoofing_threshold.md](REPLY2_to_storage_spoofing_threshold.md) | **Storage (.92)** | 🆕 **ฉบับล่าสุด** — เกณฑ์ 50 · แยก `brand_mismatch` 2 ระดับ · FP 0.029% · ⏳ รอ (ก) รายชื่อแบรนด์จาก quarantine (ข) โดเมนทั้งหมดของบริษัท |
 | [REPLY_to_storage_sender_spoofing.md](REPLY_to_storage_sender_spoofing.md) | *(รอบแรก)* | `sender_spoofing` คำนวณจริงแล้ว (กฎ +4 เลิกเป็น dead code) · ตัวเลขของเกณฑ์ 45 |
 | [NOTE_for_dashboard_data_contract.md](NOTE_for_dashboard_data_contract.md) | *(ฉบับเต็ม)* | บทวิเคราะห์รวมทั้ง 3 ฝั่ง — ใช้อ้างอิงเวลาสงสัยว่าข้อมูลมาจากไหน |
