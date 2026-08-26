@@ -800,6 +800,14 @@ def parse_email_endpoint(request: Request, req: ParseRequest):
     auth   = ep.parse_authentication_results(parsed["Auth_Results"])
     attachments = parsed["Attachments"]
     spoof  = ep.spoofing_from_headers(parsed["Sender"], req.recipient, parsed["Reply_To"])
+    evidence = ep.attack_evidence(
+        spoof_reasons=spoof["reasons"],
+        body_text=parsed.get("BodyDecoded", ""),
+        sender_domain=feats["sender_domain"],
+        reply_to_mismatch=bool(feats["reply_to_mismatch"]),
+        attachment_risk=any(ep.is_risky_attachment(a) for a in attachments),
+        subject=parsed["Subject"],
+    )
     return {
         # canonical hash ตัวเดียวกับที่ /analyze ใช้ (raw_signals.email_hash) — ให้ .92 เอาไป dedup
         # กัน re-ingest ได้โดยไม่ต้องเขียนสูตร normalize เอง (เขียนเองแล้วเพี้ยน = key ไม่ตรง)
@@ -820,14 +828,11 @@ def parse_email_endpoint(request: Request, req: ParseRequest):
         "sender_display_name": extract_display_name(parsed["Sender"]),
         # ตัวแปรหลักฐานแยกประเภทการโจมตี — ค่าเดียวกับที่ /analyze ส่งใน raw_signals
         # (/parse ไม่เรียก BERT จึงไม่มี ai_score แต่หลักฐานพวกนี้ไม่ต้องใช้ ai_score เลย)
-        "attack_evidence":   ep.attack_evidence(
-            spoof_reasons=spoof["reasons"],
-            body_text=parsed.get("BodyDecoded", ""),
-            sender_domain=feats["sender_domain"],
-            reply_to_mismatch=bool(feats["reply_to_mismatch"]),
-            attachment_risk=any(ep.is_risky_attachment(a) for a in attachments),
-            subject=parsed["Subject"],
-        ),
+        "attack_evidence":   evidence,
+        # /parse ไม่เรียก BERT -> ไม่มี ai_score -> ส่ง None
+        # ผลคือเคส "หลักฐานไม่พอ" จะได้ Normal เสมอ (ไม่มีทางรู้ว่าเป็น Unknown Threat)
+        # ถ้าต้องการแยกสองกรณีนี้ ให้เรียก /analyze แทน
+        "attack_type_v2":    ep.classify_attack_type(evidence, ai_score=None),
         "sender_ip_header":  extract_sender_ip(parsed["Received"]),
         "spf":               auth["spf"],
         "dkim":              auth["dkim"],
@@ -1029,6 +1034,10 @@ def analyze_email(request: Request, req: EmailRequest):
             # ตัวแปรหลักฐานแยกประเภทการโจมตี (ดู ep.ATTACK_EVIDENCE) — 🆕 2026-08-26
             # ทีม .92 เอาไปตั้งน้ำหนักเองได้ทันที ไม่ต้องคำนวณลิงก์/ปลอมตัวซ้ำฝั่งตัวเอง
             "attack_evidence":   evidence,
+            # ประเภทการโจมตีแบบ "อธิบายที่มาได้" — คิดจากหลักฐานข้างบน ไม่ใช่จาก XGBoost
+            # ⚠️ ห้ามเอา attack_type_v2.score ไปบวกเข้า risk score ของ .92 (จะนับซ้ำกับ LANGUAGE)
+            #    มันเป็นคนละแกน: บอก "ชนิด" ไม่ได้บอก "ความเสี่ยง"
+            "attack_type_v2":    ep.classify_attack_type(evidence, ai_score=raw_ai_score),
             "attachment_type":   features["attachment_type"],
             "has_malware":       has_malware,   # คำนวณด้วย email_preprocess.is_risky_ext แล้ว — Gateway/mail server ใช้ค่านี้ตรงๆ อย่าคำนวณใหม่
             "raw_ai_score":      round(raw_ai_score, 2),

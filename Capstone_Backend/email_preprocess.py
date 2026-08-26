@@ -715,6 +715,7 @@ ATTACK_EVIDENCE = (
     "link_domain_ratio",        # link_count / unique_link_domains (สูง = ยัดลิงก์ซ้ำโดเมน)
     "external_link_ratio",      # สัดส่วนลิงก์ที่ไม่ได้อยู่โดเมนผู้ส่ง
     "has_unsubscribe",          # มีลิงก์/ข้อความยกเลิกรับข่าว = ลักษณะเมลกระจาย
+    "link_login_lure",          # 🔑 URL ชี้ไปหน้า login/verify — หัวใจของนิยาม "ฟิชชิ่ง"
     "no_links",                 # ไม่มีลิงก์เลย — สัญญาณสำคัญของ BEC
     # --- อื่น ๆ ที่มีอยู่แล้ว ---
     "reply_to_mismatch",
@@ -740,6 +741,17 @@ _UNSUB_RE = re.compile(
 
 # ตัดอักขระท้าย URL ที่ติดมาจากประโยค/HTML (">, ], ) และจุดท้ายประโยค)
 _URL_TAIL_RE = re.compile(r'[)\]>"\'.,;!]+$')
+
+
+# คำใน path/query ของ URL ที่บ่งว่าปลายทางเป็นหน้ากรอกข้อมูลยืนยันตัวตน
+# 🔑 เพิ่ม 2026-08-26: วัดแล้วพบว่าเดิมไม่มีสัญญาณที่ "เฉพาะเจาะจงกับฟิชชิ่ง" เลย
+#    ทำให้เมลฟิชชิ่งที่มีลิงก์เยอะถูกจัดเป็น Spam ถึง 62.4% บน phishing_pot (ซึ่งเป็นฟิชชิ่งล้วน)
+# ⚠️ ดูเฉพาะส่วนหลังชื่อโฮสต์ (path/query) ไม่ดูทั้ง URL
+#    ไม่งั้นโดเมนปกติอย่าง secure-bank.co.th หรือ accounts.google.com จะติดทุกฉบับ
+_LOGIN_LURE_RE = re.compile(
+    r"(login|signin|sign-in|log-in|verify|verification|account|secure|"
+    r"confirm|update|password|passwd|auth|recover|unlock|validate|billing)",
+    re.I)
 
 
 def _url_host(url: str) -> str:
@@ -776,6 +788,12 @@ def link_features(text: str, sender_domain: str = "") -> dict:
     """
     urls = URL_RE.findall(text or "")
     doms = [d for d in (_url_host(u) for u in urls) if d]
+    lure = 0
+    for u in urls:
+        m = re.match(r"https?://[^/?#\s]+([/?#][^\s]*)?", _URL_TAIL_RE.sub("", u.strip()), re.I)
+        if m and m.group(1) and _LOGIN_LURE_RE.search(m.group(1)):
+            lure = 1
+            break
     uniq = set(doms)
     sd = registrable_domain(sender_domain or "")
     ext = sum(1 for d in doms if d != sd) if sd else len(doms)
@@ -786,6 +804,7 @@ def link_features(text: str, sender_domain: str = "") -> dict:
         "link_domain_ratio":   round(len(urls) / len(uniq), 3) if uniq else 0.0,
         "external_link_ratio": round(ext / len(doms), 3) if doms else 0.0,
         "has_unsubscribe":     1 if _UNSUB_RE.search(text or "") else 0,
+        "link_login_lure":     lure,
         "no_links":            1 if not urls else 0,
     }
 
@@ -809,3 +828,148 @@ def attack_evidence(spoof_reasons, body_text: str, sender_domain: str = "",
     if missing:
         raise RuntimeError(f"attack_evidence ขาดตัวแปร {sorted(missing)}")
     return {k: ev[k] for k in ATTACK_EVIDENCE}
+
+
+# =====================================================================
+# ATTACK TYPE v2 — คิดประเภทการโจมตีจาก "หลักฐาน" ด้วยคะแนนที่อธิบายได้
+#
+# ทำไมไม่ใช้ XGBoost: วัดแล้ว (2026-08-26) 73% ของจุดแตกกิ่งในโมเดลคือ
+#   "ai_score > 99.99x ?" เพราะทั้ง 4 คลาสมี ai_score เฉลี่ย 96-99 เท่ากันหมด
+#   -> โมเดลจำเศษทศนิยมของ softmax ตอบไม่ได้ว่าทำไมถึงเป็นประเภทนี้
+#   และ label ตอนเทรนมาจาก "ไฟล์ต้นทาง + regex คำ" ไม่ใช่คนตัดสิน (n=952)
+#
+# หลักการ: ประเภทการโจมตีเป็นเรื่อง "นิยาม" ไม่ใช่สิ่งที่ต้องค้นพบจากข้อมูล
+#   เมื่อ label ยังเชื่อไม่ได้ กฎที่เขียนตามนิยามย่อมแม่นกว่าโมเดลที่เรียนจาก label ปลอม
+#   และสำคัญกว่านั้น: ชี้ได้ทีละบรรทัดว่าคะแนนมาจากหลักฐานตัวไหน
+#
+# ⚠️ ห้ามเอา attack_type/คะแนนนี้ไปบวกเข้า risk score ของทีม .92
+#    engine เขาแบ่ง 6 องค์ประกอบให้ตรวจคนละเรื่อง (AI/Link/Attachment/Domain/Language/Header)
+#    ที่ปรึกษาเขาย้ำว่าห้ามนับซ้ำ · ตัวนี้เป็น "คนละแกน" คือบอกชนิด ไม่ได้บอกความเสี่ยง
+#    ถ้าเอาไปบวกจะกลายเป็นวนนับซ้ำ (โดยเฉพาะ has_urgency ที่ทับกับ LANGUAGE ของเขา)
+#
+# ⚠️ ตั้งใจ "ไม่" ใช้ ai_score เป็นคะแนนของประเภทใด — ai_score บอกว่า "อันตรายแค่ไหน"
+#    ไม่ได้บอกว่า "แบบไหน" (พิสูจน์แล้วว่าทั้ง 4 คลาสมีค่าเท่ากัน)
+#    ใช้แค่ตอนตัดสินว่าจะเรียกว่า Normal หรือ "ระบุประเภทไม่ได้"
+# =====================================================================
+
+ATTACK_TYPE_WEIGHTS = {
+    # มีไฟล์แนบรันโค้ดได้ = การส่งมัลแวร์ตามนิยาม ไม่ต้องมีอย่างอื่นประกอบ
+    "Malware Attachment": {
+        "attachment_risk": 100,
+    },
+    # BEC = ปลอมตัวเป็น "คน/องค์กร" เพื่อให้เหยื่อลงมือทำอะไร (มักโอนเงิน)
+    # ลักษณะเด่นคือ "ไม่มีลิงก์" เพราะไม่ได้ล่อไปหน้าเว็บ แต่คุยกับคนตรง ๆ
+    "Business Email Compromise (BEC)": {
+        "spoof_own_org":        45,   # อ้างเป็นองค์กรของผู้รับเอง = BEC ที่อันตรายสุด (.92 ชี้ 2026-08-17)
+        "spoof_display_name":   40,   # display name เป็นอีเมลคนละโดเมน
+        "spoof_freemail_corp":  25,   # อ้างเป็นบริษัท แต่ส่งจากเมลฟรี
+        "reply_to_mismatch":    15,   # ให้ตอบกลับไปที่อื่น = ดักบทสนทนา
+        "no_links":             15,
+        "has_urgency":          10,
+    },
+    # Phishing = ล่อไปกรอกข้อมูลที่หน้าเว็บปลอม -> ต้องมีลิงก์ + ปลอมแบรนด์
+    "Phishing": {
+        "spoof_homoglyph":      45,
+        "spoof_lookalike":      45,
+        "spoof_brand":          40,
+        "spoof_brand_related":  10,   # อาจเป็นพาร์ตเนอร์จริง ให้น้ำหนักต่ำ
+        "link_login_lure":      40,   # ลิงก์ชี้ไปหน้า login/verify = นิยามของฟิชชิ่งโดยตรง
+        "has_links":            10,   # ลดจาก 20 — "มีลิงก์" เฉย ๆ ไม่ได้แปลว่าฟิชชิ่ง
+        "has_urgency":          10,
+    },
+    # Spam = ส่งกระจายเชิงพาณิชย์ ไม่ได้เจาะจงเหยื่อ
+    # 🐛 ปรับน้ำหนัก 2026-08-26 หลังวัดบน phishing_pot 8,612 ฉบับ (ฟิชชิ่งล้วน)
+    #    ชุดแรกให้ many_links/all_links_external/link_repeat_domain -> จัดเป็น Spam ถึง 62.4%
+    #    เพราะสัญญาณพวกนั้น "ไม่ได้เฉพาะเจาะจงกับสแปม" ฟิชชิ่งก็ลิงก์เยอะและซ้ำโดเมนเหมือนกัน
+    #    เหลือไว้เฉพาะสิ่งที่เป็นของเมลกระจายจริง ๆ: ปุ่มยกเลิกรับข่าว + ลิงก์ไปหลายโดเมนต่างกัน
+    "Spam (High-Risk Source)": {
+        "has_unsubscribe":      30,   # เมลกระจายเชิงพาณิชย์ต้องมีปุ่มยกเลิกตามกฎหมาย
+        "many_link_domains":    25,   # ลิงก์ไปหลายโดเมนต่างกัน = โฆษณาหลายเจ้า (ฟิชชิ่งมักโดเมนเดียว)
+        "many_links":           10,
+        # 🔻 น้ำหนักติดลบ: สแปมโฆษณา "ไม่ต้องปลอมตัว" เพราะขายของจริง อยากให้คนรู้ว่าใครส่ง
+        #    ถ้ามีการปลอมตัวหรือลิงก์ล่อไปหน้า login แปลว่าเจตนาไม่ใช่การขายของ
+        #    วัดแล้ว 2026-08-26: ฟิชชิ่ง 32.6% มีข้อความ unsubscribe (ลอกเทมเพลตจดหมายข่าวมา)
+        #    ถ้าไม่หักคะแนน สแปมจะกินเคสฟิชชิ่งไปเยอะ (39.5% บน phishing_pot ซึ่งเป็นฟิชชิ่งล้วน)
+        "spoof_any":           -40,
+        "link_login_lure":     -30,
+    },
+}
+
+# 🐛 ขึ้นจาก 25 -> 35 (2026-08-26): ที่ 25 สัญญาณอ่อนตัวเดียวก็ตัดสินได้แล้ว
+#    เช่น has_unsubscribe เดี่ยว ๆ -> Spam · reply_to_mismatch+no_links -> BEC
+#    ที่ 35 ต้องมีสัญญาณหนัก 1 ตัว หรือสัญญาณอ่อน 2 ตัวขึ้นไป ถึงจะกล้าบอกประเภท
+ATTACK_TYPE_MIN_SCORE = 35   # ต่ำกว่านี้ = หลักฐานไม่พอจะบอกประเภท
+ATTACK_TYPE_MARGIN_HIGH = 30 # ห่างจากอันดับสองเท่านี้ = มั่นใจ
+ATTACK_TYPE_MARGIN_MED  = 15
+
+
+def _derived_flags(ev: dict) -> dict:
+    """แปลงตัวเลขดิบเป็นเงื่อนไข 0/1 ที่ตารางน้ำหนักใช้
+
+    แยกออกมาเป็นฟังก์ชันเพื่อให้ "จุดตัด" อยู่ที่เดียว แก้แล้วเปลี่ยนทั้งระบบ
+    """
+    return {
+        "has_links":         1 if ev.get("link_count", 0) >= 1 else 0,
+        "many_links":        1 if ev.get("link_count", 0) >= 5 else 0,
+        # ratio = link_count/unique_domains -> >=3 คือลิงก์เดิมซ้ำ ๆ อย่างน้อย 3 เท่า
+        "link_repeat_domain": 1 if ev.get("link_domain_ratio", 0) >= 3 else 0,
+        # โดเมนปลายทางหลากหลาย = ลักษณะเมลโฆษณา (ฟิชชิ่งมักชี้ไปโดเมนเดียวที่คุมอยู่)
+        "many_link_domains":  1 if ev.get("unique_link_domains", 0) >= 4 else 0,
+        # มีสัญญาณปลอมตัวอย่างน้อยหนึ่งอย่าง (ใช้หักคะแนน Spam)
+        "spoof_any":          1 if any(ev.get(k) for k in SPOOF_FLAGS.values()) else 0,
+        "all_links_external": 1 if (ev.get("link_count", 0) > 0
+                                    and ev.get("external_link_ratio", 0) >= 0.99) else 0,
+    }
+
+
+def classify_attack_type(evidence: dict, ai_score=None) -> dict:
+    """คิดประเภทการโจมตีจากหลักฐาน — คืนคะแนนทุกประเภทพร้อมที่มาของคะแนน
+
+    คืน:
+      attack_type  ชื่อประเภท | "Normal" | "Unknown Threat"
+      score        คะแนนของประเภทที่ชนะ
+      scores       คะแนนทุกประเภท (ให้เห็นว่าอันดับสองห่างแค่ไหน)
+      reasons      ["spoof_own_org(+45)", ...] เรียงจากมากไปน้อย
+      confidence   สูง/กลาง/ต่ำ — จากระยะห่างของอันดับ 1 กับ 2
+    """
+    vals = dict(evidence or {})
+    vals.update(_derived_flags(vals))
+
+    scores, why = {}, {}
+    for t, weights in ATTACK_TYPE_WEIGHTS.items():
+        total, hits = 0, []
+        for k, w in weights.items():
+            if vals.get(k):
+                total += w
+                hits.append((abs(w), f"{k}({w:+d})"))
+        total = max(total, 0)          # คะแนนติดลบไม่มีความหมาย ปัดเป็น 0
+        scores[t] = total
+        why[t] = [s for _, s in sorted(hits, reverse=True)]
+
+    ranked = sorted(scores.items(), key=lambda kv: -kv[1])
+    top, top_score = ranked[0]
+    second_score = ranked[1][1] if len(ranked) > 1 else 0
+    margin = top_score - second_score
+
+    if top_score < ATTACK_TYPE_MIN_SCORE:
+        # หลักฐานไม่พอ — ต้องแยกให้ชัดว่า "ไม่ใช่ภัย" กับ "เป็นภัยแต่บอกชนิดไม่ได้"
+        # 🐛 ของเดิมยัดให้เป็น BEC/Phishing เสมอ เพราะ Stage 2 ไม่มีคลาส Normal
+        #    -> เมลปกติที่มีลิงก์ถูกแปะป้าย BEC ทั้งที่ ai_score = 0.0 (PMG เจอ 2026-08-26)
+        if ai_score is not None and float(ai_score) >= 50:
+            return {"attack_type": "Unknown Threat", "score": int(top_score), "scores": scores,
+                    "reasons": ["ai_score สูงแต่ไม่มีหลักฐานบอกชนิด"], "confidence": "ต่ำ"}
+        return {"attack_type": "Normal", "score": int(top_score), "scores": scores,
+                "reasons": [], "confidence": "สูง" if top_score == 0 else "กลาง"}
+
+    # 🐛 2026-08-26: เดิมดูแค่ระยะห่างจากอันดับสอง -> เมลที่ได้ 30 คะแนนจากสัญญาณอ่อน
+    #    (reply_to_mismatch + no_links) แต่ประเภทอื่นได้ 0 กลับรายงานว่า "มั่นใจสูง"
+    #    ซึ่งเป็นความผิดแบบเดียวกับที่เราติ XGBoost คือมั่นใจบนหลักฐานที่ไม่มีน้ำหนัก
+    #    -> ต้องผ่านทั้งสองเงื่อนไข: หลักฐานหนักพอ "และ" ทิ้งห่างอันดับสอง
+    if top_score >= 60 and margin >= ATTACK_TYPE_MARGIN_HIGH:
+        conf = "สูง"
+    elif top_score >= 40 and margin >= ATTACK_TYPE_MARGIN_MED:
+        conf = "กลาง"
+    else:
+        conf = "ต่ำ"
+    return {"attack_type": top, "score": int(top_score), "scores": scores,
+            "reasons": why[top], "confidence": conf}

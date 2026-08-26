@@ -105,6 +105,7 @@ Response (อีเมลปลอดภัย — เข้า fast path):
 | `link_domain_ratio` | ทศนิยม | `link_count ÷ unique_link_domains` — **นิยามเดียวกับ data_dictionary ของบริษัท** สูง = ยัดลิงก์ซ้ำโดเมนเพื่อหลบฟิลเตอร์ |
 | `external_link_ratio` | 0–1 | สัดส่วนลิงก์ที่ไม่ได้อยู่โดเมนผู้ส่ง |
 | `has_unsubscribe` | 0/1 | มีข้อความ/ลิงก์ยกเลิกรับข่าว (อังกฤษ+ไทย) = ลักษณะเมลกระจาย |
+| `link_login_lure` | 0/1 | 🔑 URL ชี้ไปหน้า login/verify/account — หัวใจของนิยาม "ฟิชชิ่ง" (ดูเฉพาะ path ไม่ดูชื่อโดเมน) |
 | `no_links` | 0/1 | ไม่มีลิงก์เลย — **สัญญาณสำคัญของ BEC** (BEC ขอให้ทำอะไร ไม่ได้ล่อไปหน้าเว็บ) |
 | `reply_to_mismatch` | 0/1 | Reply-To คนละโดเมนกับ From |
 | `attachment_risk` | 0/1 | มีไฟล์แนบนามสกุลอันตราย |
@@ -119,6 +120,56 @@ Response (อีเมลปลอดภัย — เข้า fast path):
 | **BEC** | `spoof_display_name` / `spoof_own_org` / `spoof_freemail_corp` + `no_links` + `reply_to_mismatch` |
 | **Phishing** | `spoof_brand` / `spoof_lookalike` / `spoof_homoglyph` + มีลิงก์ |
 | **Spam** | `link_domain_ratio` สูง + `has_unsubscribe` |
+
+### `attack_type_v2` — ประเภทการโจมตีที่ชี้ที่มาของคะแนนได้
+
+> เพิ่ม 2026-08-26 · **`attack_type` เดิมยังส่งเหมือนเดิม** — ใช้คู่กันได้ ยังไม่ต้องเปลี่ยนอะไร
+
+```json
+"attack_type_v2": {
+  "attack_type": "Business Email Compromise (BEC)",
+  "score": 125,
+  "confidence": "สูง",
+  "reasons": ["spoof_own_org(+45)", "spoof_display_name(+40)",
+              "reply_to_mismatch(+15)", "no_links(+15)", "has_urgency(+10)"],
+  "scores": {"Business Email Compromise (BEC)": 125, "Phishing": 10,
+             "Spam (High-Risk Source)": 0, "Malware Attachment": 0}
+}
+```
+
+**สูตร:** `คะแนนของประเภท = ผลรวมน้ำหนักของหลักฐานที่ติด` แล้วเลือกประเภทที่คะแนนสูงสุด
+
+| เงื่อนไข | ผลลัพธ์ |
+|---|---|
+| คะแนนสูงสุด ≥ 35 | ตอบประเภทนั้น |
+| คะแนนสูงสุด < 35 และ `ai_score` ≥ 50 | `Unknown Threat` — เสี่ยงจริงแต่หลักฐานไม่พอบอกชนิด |
+| คะแนนสูงสุด < 35 และ `ai_score` ต่ำ | `Normal` |
+
+`confidence` = **สูง** เมื่อคะแนน ≥ 60 **และ** ทิ้งห่างอันดับสอง ≥ 30 · **กลาง** เมื่อ ≥ 40 และห่าง ≥ 15 · นอกนั้น **ต่ำ**
+
+> ต้องผ่านทั้งสองเงื่อนไข — คะแนน 30 ที่ประเภทอื่นได้ 0 ไม่ใช่ความมั่นใจสูง มันคือหลักฐานน้อยที่ไม่มีคู่แข่ง
+
+**ผลวัด** (ไม่ใช้ `ai_score` เลย):
+
+| ชุดข้อมูล | Phishing | Spam | BEC | Normal |
+|---|---|---|---|---|
+| phishing_pot ฟิชชิ่งจริง (8,612) | 11.1% | 27.9% | 1.0% | 60.0% |
+| SpamAssassin spam (1,896) | 0.9% | 18.5% | 0.8% | 79.7% |
+| easy_ham เมลปกติ (1,200) | 0.3% | 1.8% | 0.0% | **97.9%** |
+
+⚠️ **ข้อจำกัดที่ต้องรู้:** ฟิชชิ่งจริง **60% ยังระบุประเภทไม่ได้** เพราะรายชื่อแบรนด์มีแค่ราว 50 ชื่อ
+และยังไม่ได้ตรวจ "ข้อความลิงก์ไม่ตรงกับ href" · ตัวเลขข้างบนวัดจาก "ทั้งกองเป็นประเภทเดียว"
+ไม่ใช่ label รายฉบับ จึงบอกได้แค่ทิศทาง ไม่ใช่ความแม่นยำต่อฉบับ
+
+### 🚫 ห้ามเอา `attack_type_v2.score` ไปบวกเข้า risk score
+
+`risk_engine` แบ่ง 6 องค์ประกอบให้ตรวจคนละเรื่อง (AI / Link / Attachment / Domain / Language / Header)
+รวมกันได้ 100 — ที่ปรึกษาย้ำว่าห้ามนับซ้ำ
+
+`attack_type_v2` เป็น **คนละแกน**: บอกว่า "เป็นการโจมตีชนิดไหน" ไม่ได้บอกว่า "เสี่ยงแค่ไหน"
+โดยเฉพาะ `has_urgency` ที่ทับกับ component `Language` ของ risk_engine โดยตรง
+
+> แบ่งงานกันแบบนี้: **AI server บอกชนิด · risk_engine บอกความเสี่ยงและ action**
 
 ### ⚠️ ข้อควรรู้เรื่องการนับลิงก์
 
