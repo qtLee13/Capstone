@@ -306,6 +306,12 @@ def parse_raw_email(raw_content: str):
         "Received":    msg.get_all('Received', []),
         "Auth_Results": msg.get_all('Authentication-Results', []),   # ผล SPF/DKIM/DMARC จริงจาก gateway
         "Body":        body,
+        # ข้อความที่ "ถอดรหัสแล้ว" ทั้ง plain + HTML ต้นฉบับ (ยังไม่ strip tag)
+        # ⚠️ ใช้สำหรับนับลิงก์เท่านั้น ห้ามเอาเข้า BERT (Body คือตัวที่โมเดลใช้)
+        #    เหตุผล: html_to_text ทิ้ง href ทั้งหมด (เก็บแค่ handle_data) -> Body ไม่มี URL เลย
+        #    ส่วนอีเมลดิบก็ใช้ไม่ได้ เพราะ base64 ซ่อน URL ไว้ (วัดแล้ว 24.2% หาลิงก์ไม่เจอ
+        #    เทียบกับ 12.5% เมื่อถอดรหัสก่อน — phishing_pot 600 ฉบับ 2026-08-26)
+        "BodyDecoded": " ".join(x for x in (plain, html_body) if x),
         "Attachments": attachments,
         # นามสกุลที่หาได้จริง (ชื่อไฟล์ > MIME > magic bytes) — อย่าไปแยกนามสกุลจากชื่อไฟล์เองอีก
         "AttachmentExts": [e for e in attachment_exts if e],
@@ -812,6 +818,16 @@ def parse_email_endpoint(request: Request, req: ParseRequest):
         "spoofing_score":    spoof["score"],
         "spoofing_reasons":  spoof["reasons"],
         "sender_display_name": extract_display_name(parsed["Sender"]),
+        # ตัวแปรหลักฐานแยกประเภทการโจมตี — ค่าเดียวกับที่ /analyze ส่งใน raw_signals
+        # (/parse ไม่เรียก BERT จึงไม่มี ai_score แต่หลักฐานพวกนี้ไม่ต้องใช้ ai_score เลย)
+        "attack_evidence":   ep.attack_evidence(
+            spoof_reasons=spoof["reasons"],
+            body_text=parsed.get("BodyDecoded", ""),
+            sender_domain=feats["sender_domain"],
+            reply_to_mismatch=bool(feats["reply_to_mismatch"]),
+            attachment_risk=any(ep.is_risky_attachment(a) for a in attachments),
+            subject=parsed["Subject"],
+        ),
         "sender_ip_header":  extract_sender_ip(parsed["Received"]),
         "spf":               auth["spf"],
         "dkim":              auth["dkim"],
@@ -893,6 +909,19 @@ def analyze_email(request: Request, req: EmailRequest):
 
         # ใช้ตัวเช็คนามสกุลเสี่ยงกลาง (email_preprocess.is_risky_ext) ให้ตรงกับตอน train เป๊ะ
         has_malware = any(ep.is_risky_ext(ext) for ext in features["attachment_type"])
+
+        # ---- หลักฐานสำหรับแยกประเภทการโจมตี (ยังไม่เอาไปตัดสิน แค่ส่งออกให้เห็นก่อน) ----
+        # 🎯 เป้าหมาย: ให้ทุกทีมเห็น "ตัวเลขดิบ" ที่จะใช้คำนวณประเภท แทนที่จะได้แต่ชื่อคลาส
+        #    จาก XGBoost ที่อธิบายที่มาไม่ได้ (73% ของจุดตัดคือ ai_score > 99.99x)
+        # ⚠️ additive อย่างเดียว — ไม่แตะ attack_type เดิม ทีมอื่นที่ใช้อยู่จึงไม่พัง
+        evidence = ep.attack_evidence(
+            spoof_reasons=spoof["reasons"],
+            body_text=parsed.get("BodyDecoded", ""),   # ถอดรหัสแล้ว ไม่ใช่ Body ที่ strip tag ทิ้ง href
+            sender_domain=sender_domain,
+            reply_to_mismatch=features["reply_to_mismatch"],
+            attachment_risk=has_malware,
+            subject=parsed["Subject"],
+        )
 
         # ถ้ามี URL ใน body → บังคับผ่าน Stage 2 (link check) เสมอ ห้าม fast path
         has_urls = bool(re.findall(r'https?://[^\s]+', raw_text))
@@ -997,6 +1026,9 @@ def analyze_email(request: Request, req: EmailRequest):
             "sender_spoofing":   spoof["spoofing"],
             "spoofing_score":    spoof["score"],      # 0-100 ให้ .92 ตั้งน้ำหนักเองได้
             "spoofing_reasons":  spoof["reasons"],    # รหัสสัญญาณ เช่น brand_mismatch:paypal!=evil.top
+            # ตัวแปรหลักฐานแยกประเภทการโจมตี (ดู ep.ATTACK_EVIDENCE) — 🆕 2026-08-26
+            # ทีม .92 เอาไปตั้งน้ำหนักเองได้ทันที ไม่ต้องคำนวณลิงก์/ปลอมตัวซ้ำฝั่งตัวเอง
+            "attack_evidence":   evidence,
             "attachment_type":   features["attachment_type"],
             "has_malware":       has_malware,   # คำนวณด้วย email_preprocess.is_risky_ext แล้ว — Gateway/mail server ใช้ค่านี้ตรงๆ อย่าคำนวณใหม่
             "raw_ai_score":      round(raw_ai_score, 2),

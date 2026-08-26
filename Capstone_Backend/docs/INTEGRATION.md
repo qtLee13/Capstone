@@ -69,6 +69,67 @@ Response (อีเมลปลอดภัย — เข้า fast path):
 
 ---
 
+---
+
+## 🆕 `attack_evidence` — ตัวแปรหลักฐานสำหรับแยกประเภทการโจมตี
+
+> เพิ่ม 2026-08-26 · **additive อย่างเดียว** — `attack_type` เดิมยังส่งเหมือนเดิม ของที่ใช้อยู่ไม่พัง
+> มีทั้งใน `POST /analyze` (ใน `raw_signals`) และ `POST /parse`
+
+**ทำไมถึงเพิ่ม:** `attack_type` จาก XGBoost อธิบายที่มาไม่ได้ — วัดแล้วพบว่า 73% ของจุดตัดสินใจ
+ในโมเดลคือคำถาม `ai_score > 99.99x ?` ซึ่งเป็นเศษทศนิยมของ softmax ไม่ใช่สัญญาณความปลอดภัย
+(ดู `docs/stage1_ham_fp_eval.json`) · ตัวแปรข้างล่างคือ **หลักฐานดิบ** ที่ตรงกับนิยามของการโจมตีแต่ละแบบ
+เอาไปตั้งน้ำหนักเองได้ทันที และอธิบายให้คนอื่นเข้าใจได้ว่าทำไมถึงตัดสินแบบนั้น
+
+```json
+"attack_evidence": {
+  "spoof_display_name": 0, "spoof_homoglyph": 0, "spoof_lookalike": 0,
+  "spoof_brand": 1, "spoof_brand_related": 0, "spoof_own_org": 0, "spoof_freemail_corp": 0,
+  "link_count": 6, "unique_link_domains": 2, "link_domain_ratio": 3.0,
+  "external_link_ratio": 1.0, "has_unsubscribe": 1, "no_links": 0,
+  "reply_to_mismatch": 1, "attachment_risk": 0, "has_urgency": 1, "sender_is_free_mailer": 0
+}
+```
+
+| ตัวแปร | ค่า | ความหมาย |
+|---|---|---|
+| `spoof_display_name` | 0/1 | display name เป็นอีเมลคนละโดเมนกับผู้ส่งจริง |
+| `spoof_homoglyph` | 0/1 | โดเมนใช้อักษรหลอกตา / punycode |
+| `spoof_lookalike` | 0/1 | โดเมนคล้ายแบรนด์จริง (ต่างตัวอักษรเดียว ความยาวเท่ากัน) |
+| `spoof_brand` | 0/1 | อ้างแบรนด์ในชื่อ แต่โดเมนไม่เกี่ยวกับแบรนด์นั้น |
+| `spoof_brand_related` | 0/1 | อ้างแบรนด์ และชื่อแบรนด์อยู่ในโดเมนด้วย (มักเป็นพาร์ตเนอร์จริง — น้ำหนักควรต่ำ) |
+| `spoof_own_org` | 0/1 | 🔴 อ้างเป็นองค์กรของผู้รับ แต่ส่งจากข้างนอก — BEC ที่อันตรายที่สุด |
+| `spoof_freemail_corp` | 0/1 | อ้างเป็นบริษัท/หน่วยงาน แต่ส่งจากเมลฟรี |
+| `link_count` | จำนวน | ลิงก์ทั้งหมดในเนื้อเมล |
+| `unique_link_domains` | จำนวน | โดเมนไม่ซ้ำของลิงก์ |
+| `link_domain_ratio` | ทศนิยม | `link_count ÷ unique_link_domains` — **นิยามเดียวกับ data_dictionary ของบริษัท** สูง = ยัดลิงก์ซ้ำโดเมนเพื่อหลบฟิลเตอร์ |
+| `external_link_ratio` | 0–1 | สัดส่วนลิงก์ที่ไม่ได้อยู่โดเมนผู้ส่ง |
+| `has_unsubscribe` | 0/1 | มีข้อความ/ลิงก์ยกเลิกรับข่าว (อังกฤษ+ไทย) = ลักษณะเมลกระจาย |
+| `no_links` | 0/1 | ไม่มีลิงก์เลย — **สัญญาณสำคัญของ BEC** (BEC ขอให้ทำอะไร ไม่ได้ล่อไปหน้าเว็บ) |
+| `reply_to_mismatch` | 0/1 | Reply-To คนละโดเมนกับ From |
+| `attachment_risk` | 0/1 | มีไฟล์แนบนามสกุลอันตราย |
+| `has_urgency` | 0/1 | คำเร่งด่วน — **ตรวจทั้งอังกฤษและไทย** (ของบริษัทตรวจอังกฤษอย่างเดียว) |
+| `sender_is_free_mailer` | 0/1 | ผู้ส่งใช้เมลฟรี (gmail/hotmail/…) |
+
+**หลักฐานแมปกับประเภทการโจมตีอย่างไร** (ตามนิยาม ไม่ใช่ตามที่โมเดลเดา):
+
+| ประเภท | หลักฐานที่ควรติด |
+|---|---|
+| **Malware** | `attachment_risk` |
+| **BEC** | `spoof_display_name` / `spoof_own_org` / `spoof_freemail_corp` + `no_links` + `reply_to_mismatch` |
+| **Phishing** | `spoof_brand` / `spoof_lookalike` / `spoof_homoglyph` + มีลิงก์ |
+| **Spam** | `link_domain_ratio` สูง + `has_unsubscribe` |
+
+### ⚠️ ข้อควรรู้เรื่องการนับลิงก์
+
+นับจากข้อความที่ **ถอดรหัสแล้ว** (text/plain + HTML ต้นฉบับ) ไม่ใช่จากอีเมลดิบ
+
+วัดบน phishing_pot 600 ฉบับ (2026-08-26): อ่านจากอีเมลดิบทำให้ **24.2% หาลิงก์ไม่เจอเลย**
+เพราะเนื้อเมลถูกเข้ารหัส base64 · พอถอดรหัสก่อนเหลือ 12.5%
+
+> `raw_link_score` (คนละตัวกับ `link_count`) ยังอ่านจากอีเมลดิบอยู่ = ยังตาบอดกับเมลที่เข้ารหัส
+> เป็นงานที่ต้องแก้ต่อ แต่แยกออกมาเพราะการแก้จะเปลี่ยนคะแนนที่ทีมอื่นใช้อยู่
+
 ## สำหรับเครื่องที่ 3 (Dashboard) → ดึงสถิติ
 
 มี 2 ทางเลือก:

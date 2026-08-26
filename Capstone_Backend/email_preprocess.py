@@ -659,3 +659,153 @@ def spoofing_from_headers(from_header: str, recipient: str = "", reply_to: str =
     reply_domain = reply_to.split("@")[-1].strip().strip(">").lower() if "@" in (reply_to or "") else ""
     return detect_sender_spoofing(display, sender_domain, recip_domain, reply_domain,
                                   sender_email=addr.strip().strip("<>").lower())
+
+
+# =====================================================================
+# ATTACK EVIDENCE — ตัวแปรหลักฐานสำหรับ "แยกประเภทการโจมตี"
+#
+# ทำไมต้องมี: Stage 2 ปัจจุบันรับ 5 ตัวเลข (ai_score, link_risk, abuseipdb,
+#   reply_to_mismatch, attachment_risk) แล้วเลือก 1 ใน 4 คลาส
+#   แต่ 4 คลาสนั้นมี ai_score เฉลี่ย 96-99 เท่ากันหมด -> แยกกันไม่ได้จริง
+#   (วัดแล้ว 2026-08-26: 73% ของจุดแตกกิ่งในโมเดลคือ "ai_score > 99.99x ?"
+#    = โมเดลจำ noise ของ softmax แทนที่จะใช้สัญญาณจริง ดู docs/)
+#
+# หลักการ: ประเภทการโจมตีเป็นเรื่อง "นิยาม" ไม่ใช่เรื่องที่ต้องค้นจากข้อมูล
+#   BEC      = ปลอมตัวเป็นคน/องค์กร ขอให้ทำอะไร มัก "ไม่มีลิงก์"
+#   Phishing = ล่อไปหน้า login ปลอม -> ปลอมแบรนด์ + มีลิงก์
+#   Spam     = ส่งกระจาย ขายของ -> ลิงก์เยอะ ซ้ำโดเมน มี unsubscribe
+#   Malware  = มีไฟล์แนบอันตราย
+# ตัวแปรข้างล่างคือ "หลักฐาน" ของนิยามเหล่านั้น — ใช้ได้ทั้งกับกฎและกับโมเดลที่จะเทรนทีหลัง
+#
+# ⚠️ ATTACK_EVIDENCE คือ single source ของลำดับ/ชื่อ — ห้ามสร้าง list เองที่อื่น
+#    (บทเรียนเดิม: STAGE2_FEATURES ลำดับสลับระหว่าง train กับ serve)
+# =====================================================================
+
+# รหัสเหตุผลจาก detect_sender_spoofing -> ชื่อตัวแปร
+SPOOF_FLAGS = {
+    "display_name_other_email":   "spoof_display_name",
+    "homoglyph_domain":           "spoof_homoglyph",
+    "lookalike_domain":           "spoof_lookalike",
+    "brand_mismatch":             "spoof_brand",
+    "brand_related_domain":       "spoof_brand_related",
+    "impersonates_recipient_org": "spoof_own_org",
+    "freemail_corporate_claim":   "spoof_freemail_corp",
+}
+
+# 🐛 กันเงียบ: ถ้ามีคนเพิ่มสัญญาณใน SPOOF_WEIGHTS แล้วลืมเพิ่มที่นี่
+#    ตัวแปรนั้นจะหายไปจากหลักฐานโดยไม่มีใครรู้ -> ให้พังตอน import ไปเลย
+_missing_flags = set(SPOOF_WEIGHTS) - set(SPOOF_FLAGS)
+if _missing_flags:
+    raise RuntimeError(
+        f"SPOOF_WEIGHTS มีสัญญาณที่ยังไม่มีใน SPOOF_FLAGS: {sorted(_missing_flags)} "
+        "— เพิ่มชื่อตัวแปรให้ครบ ไม่งั้นหลักฐานจะหายเงียบ ๆ")
+
+ATTACK_EVIDENCE = (
+    # --- ปลอมตัวผู้ส่ง (แตกจาก spoofing_reasons ให้เป็นตัวแปรรายตัว) ---
+    "spoof_display_name",       # display name เป็นอีเมลคนละโดเมนกับผู้ส่งจริง
+    "spoof_homoglyph",          # โดเมนใช้อักษรหลอกตา / punycode
+    "spoof_lookalike",          # โดเมนคล้ายแบรนด์จริง (ต่างตัวอักษรเดียว)
+    "spoof_brand",              # อ้างแบรนด์ในชื่อ แต่โดเมนไม่เกี่ยวกับแบรนด์
+    "spoof_brand_related",      # อ้างแบรนด์ และชื่อแบรนด์อยู่ในโดเมนด้วย (มักเป็นพาร์ตเนอร์จริง)
+    "spoof_own_org",            # อ้างเป็นองค์กรของผู้รับ แต่ส่งจากข้างนอก (BEC ที่อันตรายสุด)
+    "spoof_freemail_corp",      # อ้างเป็นบริษัท/หน่วยงาน แต่ส่งจากเมลฟรี
+    # --- ลิงก์ (นิยามตรงกับ data_dictionary ของบริษัท เพื่อให้เทียบตัวเลขกันได้) ---
+    "link_count",               # จำนวนลิงก์ทั้งหมด
+    "unique_link_domains",      # จำนวนโดเมนไม่ซ้ำ
+    "link_domain_ratio",        # link_count / unique_link_domains (สูง = ยัดลิงก์ซ้ำโดเมน)
+    "external_link_ratio",      # สัดส่วนลิงก์ที่ไม่ได้อยู่โดเมนผู้ส่ง
+    "has_unsubscribe",          # มีลิงก์/ข้อความยกเลิกรับข่าว = ลักษณะเมลกระจาย
+    "no_links",                 # ไม่มีลิงก์เลย — สัญญาณสำคัญของ BEC
+    # --- อื่น ๆ ที่มีอยู่แล้ว ---
+    "reply_to_mismatch",
+    "attachment_risk",
+    "has_urgency",              # คำเร่งด่วน (อังกฤษ + ไทย — ของบริษัทตรวจอังกฤษอย่างเดียว)
+    "sender_is_free_mailer",
+)
+
+# คำเร่งด่วน: ของบริษัทใช้ regex อังกฤษล้วน (ระบุไว้ใน data_dictionary ว่าเป็นข้อจำกัด)
+# เติมไทยเข้าไปเพราะเมลไทยคือประชากรจริงของระบบนี้
+_URGENCY_RE = re.compile(
+    r"\b(urgent|immediately|asap|verify\s+your|suspend|suspended|expire[sd]?|"
+    r"claim\s+now|act\s+now|final\s+notice|last\s+warning|within\s+24\s*hours?|"
+    r"confirm\s+your\s+account|update\s+your\s+(account|payment|billing))\b"
+    r"|ด่วน|เร่งด่วน|ภายใน\s*24|ระงับบัญชี|ถูกระงับ|ยืนยันตัวตน|ยืนยันบัญชี|"
+    r"หมดอายุ|ครั้งสุดท้าย|กรุณาดำเนินการทันที",
+    re.I)
+
+_UNSUB_RE = re.compile(
+    r"unsubscribe|opt[\s-]?out|manage\s+(your\s+)?preferences|list-unsubscribe"
+    r"|ยกเลิกการรับ|เลิกรับข่าว|ยกเลิกรับอีเมล",
+    re.I)
+
+# ตัดอักขระท้าย URL ที่ติดมาจากประโยค/HTML (">, ], ) และจุดท้ายประโยค)
+_URL_TAIL_RE = re.compile(r'[)\]>"\'.,;!]+$')
+
+
+def _url_host(url: str) -> str:
+    """โฮสต์ของ URL -> โดเมนจดทะเบียน (eTLD+1) · ใช้ registrable_domain ตัวเดียวกับ spoofing"""
+    u = _URL_TAIL_RE.sub("", (url or "").strip())
+    m = re.match(r"https?://([^/?#\s]+)", u, re.I)
+    if not m:
+        return ""
+    host = m.group(1).split("@")[-1].split(":")[0]     # ตัด user:pass@ และ :port
+    return registrable_domain(host)
+
+
+def spoof_flags(reasons) -> dict:
+    """แตก spoofing_reasons เป็นตัวแปร 0/1 รายตัว
+
+    reasons มาในรูป 'brand_mismatch:paypal!=evil.top' -> เอาเฉพาะรหัสหน้า ':'
+    """
+    out = {name: 0 for name in SPOOF_FLAGS.values()}
+    for r in reasons or ():
+        code = str(r).split(":", 1)[0].strip()
+        key = SPOOF_FLAGS.get(code)
+        if key:
+            out[key] = 1
+    return out
+
+
+def link_features(text: str, sender_domain: str = "") -> dict:
+    """นับลิงก์จากข้อความ
+
+    ⚠️ ต้องส่ง "ข้อความที่ถอดรหัสแล้ว" (text/plain + text/html) เข้ามา ไม่ใช่อีเมลดิบ
+       วัดแล้ว 2026-08-26 บน phishing_pot 600 ฉบับ: อ่านจาก raw ทำให้ 24.2% หาลิงก์ไม่เจอเลย
+       แต่พอถอดรหัส base64 ก่อน เหลือ 12.5% -> อ่านจาก raw = ตาบอดกับเมลที่เข้ารหัส
+       (อีกทางหนึ่ง raw ยังเจอ URL ใน header เช่น Received/DKIM ซึ่งไม่ใช่ลิงก์ในเนื้อเมล)
+    """
+    urls = URL_RE.findall(text or "")
+    doms = [d for d in (_url_host(u) for u in urls) if d]
+    uniq = set(doms)
+    sd = registrable_domain(sender_domain or "")
+    ext = sum(1 for d in doms if d != sd) if sd else len(doms)
+    return {
+        "link_count":          len(urls),
+        "unique_link_domains": len(uniq),
+        # นิยามเดียวกับ data_dictionary ของบริษัท: link_count / unique_link_domains
+        "link_domain_ratio":   round(len(urls) / len(uniq), 3) if uniq else 0.0,
+        "external_link_ratio": round(ext / len(doms), 3) if doms else 0.0,
+        "has_unsubscribe":     1 if _UNSUB_RE.search(text or "") else 0,
+        "no_links":            1 if not urls else 0,
+    }
+
+
+def attack_evidence(spoof_reasons, body_text: str, sender_domain: str = "",
+                    reply_to_mismatch: bool = False, attachment_risk: bool = False,
+                    subject: str = "") -> dict:
+    """รวมหลักฐานทั้งหมดเป็น dict เดียว คีย์ตรงกับ ATTACK_EVIDENCE เสมอ
+
+    body_text = ข้อความที่ถอดรหัสแล้ว (plain + html) — ดูหมายเหตุใน link_features
+    """
+    ev = spoof_flags(spoof_reasons)
+    ev.update(link_features(body_text, sender_domain))
+    blob = f"{subject or ''} {body_text or ''}"
+    ev["reply_to_mismatch"]     = 1 if reply_to_mismatch else 0
+    ev["attachment_risk"]       = 1 if attachment_risk else 0
+    ev["has_urgency"]           = 1 if _URGENCY_RE.search(blob) else 0
+    ev["sender_is_free_mailer"] = 1 if registrable_domain(sender_domain or "") in FREE_MAILERS else 0
+    # เรียงตามสัญญา + กันตกหล่น
+    missing = set(ATTACK_EVIDENCE) - set(ev)
+    if missing:
+        raise RuntimeError(f"attack_evidence ขาดตัวแปร {sorted(missing)}")
+    return {k: ev[k] for k in ATTACK_EVIDENCE}
