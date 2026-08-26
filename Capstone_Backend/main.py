@@ -34,7 +34,8 @@ import torch
 import torch.nn.functional as F
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-# ส่วนคำนวณ Risk Score ทั้งหมดแยกไปอยู่ risk_score.py (แก้สูตรที่ไฟล์นั้นไฟล์เดียว)
+# ⚠️ สูตรคิด Risk Score เป็นของทีม .92 (risk_config.py) ไม่ใช่ของเราแล้ว — มติ 2026-08-26
+#    risk_score.py ที่นี่เหลือแค่ประตู fast path (ตัดงาน external check ที่ไม่จำเป็น)
 import risk_score
 # การแปลง text ก่อนเข้า BERT (strip HTML + subject + mask URL) — ใช้ร่วมกับ extractor กัน train/serving skew
 import email_preprocess as ep
@@ -335,7 +336,8 @@ def extract_features(parsed_data):
     ]
     return features
 
-# หมายเหตุ: compute_header_anomaly() ย้ายไปอยู่ risk_score.py แล้ว
+# หมายเหตุ: compute_header_anomaly() ถูกลบแล้ว (2026-08-26) — เป็นส่วนหนึ่งของสูตร
+#           risk score ที่ยกให้ .92 ไปคำนวณเอง · ฝั่งเราส่งแค่สัญญาณดิบใน raw_signals
 
 # ================= Stage 2: Threat Intel =================
 # executor กลางสำหรับยิงเช็ค external (link/abuseipdb/dmarc) แบบ parallel
@@ -596,8 +598,14 @@ def model_info():
             # ตอบตรงๆ ให้ UI ตัดสินใจแสดงปุ่มถูก: Stage 1 เทรนบน VM นี้ไม่ได้ (ไม่มี GPU)
             "stage1": False,
             "stage2": False,
-            "note": "Stage 1 (BERT) ต้องเทรน offline บนเครื่อง GPU · Stage 2 retrain endpoint ยังไม่ deploy "
-                    "(รอ email_hash จากฝั่ง Dashboard/Gateway ตาม Path A)",
+            # 2026-08-26: ยกเลิกแผน /model/retrain ถาวร — ไม่ใช่ "ยังไม่เสร็จ"
+            # เหตุผล: label ตอนเทรน Stage 2 มาจาก "ไฟล์ต้นทาง + regex" ไม่ใช่คนตัดสิน และ
+            # 73% ของจุดตัดสินใจในโมเดลคือ ai_score > 99.99x → เทรนซ้ำ = ทายป้ายปลอมแม่นขึ้น
+            # ทางที่เลือกแทน: attack_type_v2 (กฎที่อธิบายที่มาได้) + สมการจาก label ที่คนติดจริง
+            "note": "Stage 1 (BERT) ต้องเทรน offline บนเครื่อง GPU · "
+                    "Stage 2 retrain endpoint ยกเลิกแล้ว (2026-08-26) ใช้ attack_type_v2 แทน — "
+                    "UI ไม่ต้องมีปุ่ม Retrain",
+            "stage2_cancelled_reason": "label ตอนเทรนไม่ได้มาจากคนตัดสิน + โมเดลแยกประเภทจาก ai_score เป็นหลัก",
         },
     }
 
@@ -1224,7 +1232,10 @@ def _load_valid_labels() -> tuple:
             "Phishing", "Spam (High-Risk Source)", "Normal")
 
 VALID_FEEDBACK_LABELS = _load_valid_labels()
-RETRAIN_MIN_LABELS = 50   # ตรงกับเงื่อนไขใน /model/retrain
+# ⚠️ 2026-08-26: /model/retrain ถูกยกเลิก — label ที่เก็บได้ "ไม่ได้เอาไป retrain แล้ว"
+# ตอนนี้ label มีไว้ 2 อย่าง: (1) วัดความแม่นของ attack_type_v2 บนของจริง
+# (2) fit สมการแยกประเภท (scripts/fit_attack_type_equation.py) ซึ่งต้องการ >= 25 ตัวอย่าง/คลาส
+FEEDBACK_MIN_LABELS = 50
 
 
 class FeedbackLabelRequest(BaseModel):
@@ -1313,23 +1324,31 @@ def feedback_label(request: Request, req: FeedbackLabelRequest, db: Session = De
         "email_hash":      req.email_hash,
         "true_label":      req.true_label,
         "db_row_updated":  db_updated,   # False = ยังไม่มีแถวนี้ใน DB (label ยังถูกเก็บไว้แล้ว)
-        # ให้ Dashboard โชว์ความคืบหน้าไปยัง retrain ได้
+        # ความคืบหน้าการเก็บ label (ไว้โชว์ progress bar)
         "labels_total":    total,
         "labels_unique":   unique,
-        "labels_required": RETRAIN_MIN_LABELS,
-        "ready_to_retrain": unique >= RETRAIN_MIN_LABELS,
+        "labels_required": FEEDBACK_MIN_LABELS,
+        # deprecated: /model/retrain ยกเลิกแล้ว คีย์นี้คงไว้ชั่วคราวไม่ให้ UI เดิมพัง
+        "ready_to_retrain": False,
     }
 
 
 @app.get("/model/feedback-stats", dependencies=[Depends(verify_api_key)])
 def feedback_stats():
-    """ความคืบหน้าการเก็บ label (ให้ Dashboard โชว์ progress bar ไปยัง retrain)"""
+    """ความคืบหน้าการเก็บ label จาก analyst
+
+    ⚠️ label พวกนี้ไม่ได้เอาไป retrain แล้ว (/model/retrain ยกเลิก 2026-08-26)
+       ใช้วัดความแม่นของ attack_type_v2 และ fit สมการแยกประเภทแทน
+    """
     total, unique = _count_feedback_labels()
     return {
         "labels_total":     total,
         "labels_unique":    unique,
-        "labels_required":  RETRAIN_MIN_LABELS,
-        "ready_to_retrain": unique >= RETRAIN_MIN_LABELS,
+        "labels_required":  FEEDBACK_MIN_LABELS,
+        "labels_purpose":   "วัดความแม่นของ attack_type_v2 + fit สมการแยกประเภท (ไม่ใช่ retrain)",
+        "retrain_endpoint": "cancelled",   # ไม่ต้องรอ ไม่ต้องมีปุ่มใน UI
+        # deprecated: คงไว้ชั่วคราวไม่ให้ UI เดิมพัง — จะลบเมื่อ Dashboard เอาปุ่ม Retrain ออก
+        "ready_to_retrain": False,
         "valid_labels":     list(VALID_FEEDBACK_LABELS),
     }
 

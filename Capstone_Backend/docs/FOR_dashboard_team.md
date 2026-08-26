@@ -47,7 +47,7 @@ X-Security-Token: <token>
   "labels_total": 12,            // จำนวนครั้งที่กด (รวมแก้ซ้ำ)
   "labels_unique": 9,            // ← จำนวนอีเมลที่ไม่ซ้ำ = ตัวที่นับเข้าเกณฑ์
   "labels_required": 50,
-  "ready_to_retrain": false
+  "ready_to_retrain": false      // deprecated (2026-08-26) — /model/retrain ยกเลิกแล้ว จะ false ตลอด
 }
 ```
 
@@ -67,10 +67,17 @@ X-Security-Token: <token>
 ### 🆕 แถมให้: `GET /model/feedback-stats`
 ```jsonc
 { "labels_total": 12, "labels_unique": 9, "labels_required": 50,
-  "ready_to_retrain": false,
+  "labels_purpose": "วัดความแม่นของ attack_type_v2 + fit สมการแยกประเภท (ไม่ใช่ retrain)",
+  "retrain_endpoint": "cancelled",
+  "ready_to_retrain": false,      // deprecated — จะ false ตลอด อย่าผูก logic ใหม่
   "valid_labels": ["Phishing", "Spam (High-Risk Source)", ..., "Normal"] }
 ```
-**เอาไปทำ progress bar ได้เลย** — *"เก็บ label แล้ว 9/50 ฉบับ"* ให้ analyst เห็นว่าอีกเท่าไหร่จะเทรนใหม่ได้ (เป็นแรงจูงใจให้กด feedback ด้วย)
+**เอาไปทำ progress bar ได้เลย** — *"เก็บ label แล้ว 9/50 ฉบับ"*
+
+> ⚠️ **แก้ข้อความบน UI ด้วย (2026-08-26):** อย่าเขียนว่า *"อีกเท่าไหร่จะเทรนใหม่ได้"* แล้ว
+> `/model/retrain` **ยกเลิกถาวร** — label เอาไปวัดความแม่นของ `attack_type_v2`
+> และหาค่าน้ำหนักของสมการแยกประเภทแทน (เหตุผลอยู่ใน `REPLY_to_dashboard_2026-08-26.md` ข้อ 4)
+> ข้อความที่ตรงกว่า: *"ตรวจแล้ว 9/50 ฉบับ — ช่วยให้ระบบแยกประเภทแม่นขึ้น"*
 
 ### พฤติกรรมที่ควรรู้
 | กรณี | ผลลัพธ์ |
@@ -194,7 +201,7 @@ resp.raise_for_status()
 
 | ทีม | ค้างอะไร |
 |---|---|
-| **AI (.94)** | เหลือ `POST /model/retrain` ตัวเดียว — จะทำตอน `labels_unique` ใกล้ 50 |
+| **AI** | ~~`POST /model/retrain`~~ **ยกเลิกแล้ว** (2026-08-26) — Dashboard เอาปุ่ม Retrain ออกได้เลย · แทนด้วย `attack_type_v2` + สมการจาก label จริง |
 | **Dashboard** | ไม่มีงานค้าง · แนะนำแก้ error handling (ข้อ 5) เพื่อให้ analyst เห็น error จริง |
 | **Storage (.92)** | ✅ ทำครบแล้ว — เก็บ `reasons` ลง DB แล้ว **หน้า detail ดึงมาแสดงได้เลย** ว่าทำไมถึงโดนบล็อก |
 | **Gateway** | ไม่มี |

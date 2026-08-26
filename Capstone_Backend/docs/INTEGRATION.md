@@ -2,14 +2,20 @@
 
 เอกสารสำหรับเพื่อนในทีมที่ต้องเชื่อมต่อกับ **AI Server (ฟอร์ด)**
 
-- **ZeroTier IP:** `10.22.1.94`
+> ⚠️ **ย้ายเครื่องแล้ว (2026-08)** — `10.22.1.94` (ZeroTier) **ปิดแล้ว** ยิงไปไม่มีอะไรตอบ
+
+- **IP ปัจจุบัน:** `10.99.199.73` (LAN ของเครื่อง `ai-train`)
 - **Port:** `8000`
-- **Base URL:** `http://10.22.1.94:8000`
+- **Base URL:** `http://10.99.199.73:8000`
+- **จากนอกวง:** port 8000 ไม่ได้ forward ออกอินเทอร์เน็ต — ระหว่างพัฒนาใช้ SSH tunnel
+  ```
+  ssh -p 2223 -L 8000:10.99.199.73:8000 admin@119.46.226.124
+  ```
 - **Auth:** ทุก endpoint (ยกเว้น `/health`, `/docs`) ต้องส่ง HTTP header:
   ```
   X-Security-Token: <API_SECRET_KEY ที่ตกลงกัน>
   ```
-- **API docs (ลองยิงเล่นได้):** `http://10.22.1.94:8000/docs`
+- **API docs (ลองยิงเล่นได้):** `http://10.99.199.73:8000/docs`
 
 ---
 
@@ -19,7 +25,7 @@
 
 Request:
 ```http
-POST http://10.22.1.94:8000/analyze
+POST http://10.99.199.73:8000/analyze
 X-Security-Token: <API_KEY>
 Content-Type: application/json
 
@@ -33,39 +39,57 @@ Content-Type: application/json
 - `recipient` = อีเมลผู้รับ (ไม่ส่งก็ได้ default = `unknown@corp.com`)
 - จำกัด rate: **30 requests/นาที** ต่อ IP
 
-Response (อีเมลเสี่ยง):
+> ⚠️ **เปลี่ยน contract แล้ว** — เดิม `/analyze` ตอบ `summary.final_risk_score` + `risk_level`
+> **ตอนนี้ไม่ตอบแล้ว** เพราะสูตรคิดคะแนนความเสี่ยงย้ายไปเป็นของ **ทีม .92** (`risk_config.py`)
+> ฝั่ง AI ส่งแค่ "สัญญาณดิบ" ให้ ใครถ่วงน้ำหนักเท่าไหร่เป็นเรื่องของฝั่ง scoring
+> (มีสูตรที่เดียว ไม่งั้นอีเมลฉบับเดียวกันได้คนละคะแนน)
+
+Response (ทุกกรณี — ทั้งเสี่ยงและปลอดภัย):
 ```json
 {
-  "summary": {
-    "final_risk_score": 65.31,
-    "risk_level": "🟠 Quarantine",
-    "action_color": "#dd6b20",
+  "raw_signals": {
+    "email_hash": "...", "message_id": "...",
+    "sender_domain": "...", "sender_email": "...", "recipient": "...",
+    "spf_result": "fail", "dkim_result": "pass", "dmarc_result": "fail",
+    "auth_source": {"spf": "pmg", "dkim": "header", "dmarc": "pmg", "sender_ip": "pmg"},
+    "reply_to_mismatch": true,
+    "sender_spoofing": true, "spoofing_score": 65, "spoofing_reasons": ["brand_mismatch:paypal!=evil.top"],
+    "attack_evidence": { ... 20 ตัวแปร ดูหัวข้อข้างล่าง ... },
+    "attack_type_v2": {"attack_type": "Phishing", "score": 220, "confidence": "สูง", "reasons": [...]},
+    "attachment_type": ".pdf", "has_malware": false,
+    "raw_ai_score": 99.47,
+    "raw_link_score": 10, "link_confidence": "suspicious",
+    "abuseipdb_score": 0, "abuseipdb_measured": false,
+    "subject": "...", "body_text": "...",
     "attack_type": "Business Email Compromise (BEC)"
-  },
-  "details": {
-    "ai_score": 99.47, "link_risk": 10, "header_anomaly": 30,
-    "abuseipdb_score": 0, "dmarc_status": "fail", "detected_links": [...]
   }
 }
 ```
 
-Response (อีเมลปลอดภัย — เข้า fast path):
-```json
-{
-  "summary": {"final_risk_score": 0.12, "risk_level": "🟢 Allow", "action_color": "#2f855a", "attack_type": "Normal"},
-  "details": {"message": "Safe"}
-}
+**อีเมลที่ปลอดภัยชัดเจน (fast path)** — `raw_ai_score < 30`, ไม่มีไฟล์แนบอันตราย, ไม่มี URL ใน body
+จะข้าม external check (VirusTotal / IPQS / DMARC) เพื่อความเร็ว โครงสร้างที่ตอบกลับ**เหมือนเดิมทุกฟิลด์** แต่:
+
+| ฟิลด์ | ค่าตอน fast path | อ่านยังไง |
+|---|---|---|
+| `raw_link_score` | `0` | ไม่ได้ตรวจ ไม่ใช่ "ตรวจแล้วสะอาด" |
+| `abuseipdb_score` | `0` | เช็คคู่กับ `abuseipdb_measured` เสมอ |
+| `abuseipdb_measured` | `false` | **`false` = ไม่ได้วัด** อย่าตีความว่า IP สะอาด |
+| `auth_source.sender_ip` | `"not_checked"` | |
+| `attack_type` | `"Normal"` | มาจากการข้าม Stage 2 ไม่ใช่ผลของโมเดล |
+
+---
+
+## เกณฑ์ตัดสิน (risk_level) อยู่ที่ไหน
+
+**ไม่ได้อยู่ที่ AI server** — ทีม .92 เป็นเจ้าของสูตรและเกณฑ์ ตั้งแต่ 2026-08-26
+
+```
+AI (ที่นี่)          .92 (risk_scoring/)        Gateway / Mail server
+สัญญาณดิบ     →     คิดคะแนน + ระดับ      →     forward / quarantine / block
 ```
 
-**เกณฑ์ risk_level จาก final_risk_score:**
-| score | level | ความหมาย |
-|-------|-------|----------|
-| 0–29  | 🟢 Allow      | ปล่อยผ่าน |
-| 30–59 | 🟡 Warning    | เตือน |
-| 60–79 | 🟠 Quarantine | กักไว้ |
-| 80–100| 🔴 Block      | บล็อก |
+ถ้าอยากได้คะแนนรวม ให้เรียกฝั่ง .92 อย่าคำนวณเองซ้ำ
 
-> Gateway เอา `risk_level` / `final_risk_score` ไปตัดสินใจว่าจะ forward อีเมลเข้า Mailpit (เครื่อง 4) หรือบล็อก
 
 ---
 
@@ -189,7 +213,7 @@ Response (อีเมลปลอดภัย — เข้า fast path):
 **`GET /dashboard?period=7days`** (period = `today` | `7days` | `30days`)
 
 ```http
-GET http://10.22.1.94:8000/dashboard?period=7days
+GET http://10.99.199.73:8000/dashboard?period=7days
 X-Security-Token: <API_KEY>
 ```
 

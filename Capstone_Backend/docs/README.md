@@ -63,4 +63,6 @@
 | `/parse` · `email_hash` · `message_id` · payload guard · `link_confidence` | ✅ live |
 | `sender_spoofing` + `spoofing_score` + `spoofing_reasons` | 🆕 เขียน+วัดผลแล้ว ⏳ **รอ deploy** |
 | grace-mode รับ 2 token (เตรียมหมุน token) | ✅ live *(ยังไม่เริ่มหมุน)* |
-| feedback loop (`/model/feedback-label`, `/model/retrain`) | ⏸️ รอ Dashboard ทำปุ่ม + สะสม label 50 |
+| feedback loop (`/model/feedback-label`, `/model/feedback-stats`) | ✅ live · ⏸️ รอ Dashboard ทำปุ่ม (label 0/50) |
+| ~~`/model/retrain`~~ | ❌ **ยกเลิกถาวร 2026-08-26** — Stage 2 แยกประเภทจาก `ai_score` เป็นหลัก เทรนซ้ำไม่ช่วย · ใช้ `attack_type_v2` แทน |
+| สูตร Risk Score (`risk_score.py`) | ❌ **ลบแล้ว 2026-08-26** — ยกความเป็นเจ้าของให้ทีม .92 (`risk_config.py`) |
