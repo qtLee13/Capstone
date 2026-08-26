@@ -716,22 +716,39 @@ ATTACK_EVIDENCE = (
     "external_link_ratio",      # สัดส่วนลิงก์ที่ไม่ได้อยู่โดเมนผู้ส่ง
     "has_unsubscribe",          # มีลิงก์/ข้อความยกเลิกรับข่าว = ลักษณะเมลกระจาย
     "link_login_lure",          # 🔑 URL ชี้ไปหน้า login/verify — หัวใจของนิยาม "ฟิชชิ่ง"
+    "link_text_mismatch",       # ข้อความลิงก์อ้างโดเมนหนึ่ง แต่ href พาไปอีกโดเมน
     "no_links",                 # ไม่มีลิงก์เลย — สัญญาณสำคัญของ BEC
     # --- อื่น ๆ ที่มีอยู่แล้ว ---
     "reply_to_mismatch",
     "attachment_risk",
-    "has_urgency",              # คำเร่งด่วน (อังกฤษ + ไทย — ของบริษัทตรวจอังกฤษอย่างเดียว)
+    "asks_credential",          # ขอให้ยืนยันตัวตน/รหัสผ่าน — แยกจาก has_urgency ไม่ให้นับซ้ำ
+    "has_urgency",              # คำเร่งด่วน/ขู่ (อังกฤษ + ไทย — ของบริษัทตรวจอังกฤษอย่างเดียว)
     "sender_is_free_mailer",
 )
 
 # คำเร่งด่วน: ของบริษัทใช้ regex อังกฤษล้วน (ระบุไว้ใน data_dictionary ว่าเป็นข้อจำกัด)
 # เติมไทยเข้าไปเพราะเมลไทยคือประชากรจริงของระบบนี้
+# ⚠️ แยก "เร่งด่วน/ขู่" ออกจาก "ขอข้อมูลยืนยันตัวตน" — เดิมปนกันอยู่ใน _URGENCY_RE
+#    ทำให้เมลฉบับเดียวได้คะแนนสองเด้งจากประโยคเดียว ("ยืนยันตัวตนด่วน")
+#    หลักการเดียวกับที่ทีม .92 แยก 6 กลุ่มความหมาย: ตรวจคนละเรื่อง ห้ามนับซ้ำ
 _URGENCY_RE = re.compile(
-    r"\b(urgent|immediately|asap|verify\s+your|suspend|suspended|expire[sd]?|"
+    r"\b(urgent|immediately|asap|suspend|suspended|expire[sd]?|"
     r"claim\s+now|act\s+now|final\s+notice|last\s+warning|within\s+24\s*hours?|"
-    r"confirm\s+your\s+account|update\s+your\s+(account|payment|billing))\b"
-    r"|ด่วน|เร่งด่วน|ภายใน\s*24|ระงับบัญชี|ถูกระงับ|ยืนยันตัวตน|ยืนยันบัญชี|"
-    r"หมดอายุ|ครั้งสุดท้าย|กรุณาดำเนินการทันที",
+    r"account\s+(locked|closed)|will\s+be\s+(deleted|terminated))\b"
+    r"|ด่วน|เร่งด่วน|ภายใน\s*24|ระงับบัญชี|ถูกระงับ|บัญชีถูกล็อก|"
+    r"หมดอายุ|ครั้งสุดท้าย|กรุณาดำเนินการทันที|หมดเขต",
+    re.I)
+
+# ขอให้ "ส่งมอบข้อมูลยืนยันตัวตน" — แก่นของฟิชชิ่ง (ต่างจากการเร่งเฉย ๆ)
+_CREDENTIAL_RE = re.compile(
+    r"\b(verify\s+your\s+(account|identity|email|information)|"
+    r"confirm\s+your\s+(account|identity|password|details)|"
+    r"update\s+your\s+(account|payment|billing|password)|"
+    r"reset\s+your\s+password|sign\s+in\s+to\s+(confirm|verify|continue)|"
+    r"enter\s+your\s+(password|credentials|pin)|validate\s+your\s+account|"
+    r"one[\s-]?time\s+password|security\s+code)\b"
+    r"|ยืนยันตัวตน|ยืนยันบัญชี|ยืนยันข้อมูล|รีเซ็ตรหัสผ่าน|ตั้งรหัสผ่านใหม่|"
+    r"กรอกรหัสผ่าน|รหัสผ่านของท่าน|รหัส\s*otp|แจ้งรหัส|เข้าสู่ระบบเพื่อยืนยัน",
     re.I)
 
 _UNSUB_RE = re.compile(
@@ -752,6 +769,36 @@ _LOGIN_LURE_RE = re.compile(
     r"(login|signin|sign-in|log-in|verify|verification|account|secure|"
     r"confirm|update|password|passwd|auth|recover|unlock|validate|billing)",
     re.I)
+
+
+# <a href="ปลายทางจริง">ข้อความที่ผู้ใช้เห็น</a>
+# เทคนิคฟิชชิ่งคลาสสิก: โชว์ข้อความว่า paypal.com แต่ href พาไปที่อื่น
+# ⚠️ FP ที่ต้องระวัง: จดหมายข่าวถูกกฎหมายก็ทำแบบนี้ผ่าน click-tracker
+#    (โชว์ shop.example.com แต่ href เป็น click.mailer.net) -> วัดอัตราการติดก่อนตั้งน้ำหนัก
+_A_TAG_RE = re.compile(r"""<a\b[^>]*?href\s*=\s*["']?([^"'\s>]+)["']?[^>]*>(.*?)</a>""", re.I | re.S)
+_ANY_TAG_RE = re.compile(r"<[^>]+>")
+_TEXT_DOMAIN_RE = re.compile(r"\b((?:[a-z0-9][a-z0-9-]*\.)+[a-z]{2,})\b", re.I)
+
+
+def link_text_mismatch(html: str) -> int:
+    """ข้อความของลิงก์อ้างโดเมนหนึ่ง แต่ href พาไปอีกโดเมน -> 1
+
+    นับเฉพาะกรณีที่ "ข้อความมีชื่อโดเมนอยู่จริง" เท่านั้น
+    ข้อความอย่าง "คลิกที่นี่" ไม่มีอะไรให้เทียบ จึงไม่นับ (ไม่ใช่หลักฐาน ไม่ใช่หลักฐานว่าไม่ผิด)
+    """
+    for href, inner in _A_TAG_RE.findall(html or ""):
+        if not href.lower().startswith(("http://", "https://")):
+            continue                              # mailto:/tel:/# ไม่เกี่ยว
+        hd = _url_host(href)
+        if not hd:
+            continue
+        m = _TEXT_DOMAIN_RE.search(_ANY_TAG_RE.sub(" ", inner))
+        if not m:
+            continue
+        td = registrable_domain(m.group(1))
+        if td and "." in td and td != hd:
+            return 1
+    return 0
 
 
 def _url_host(url: str) -> str:
@@ -805,6 +852,7 @@ def link_features(text: str, sender_domain: str = "") -> dict:
         "external_link_ratio": round(ext / len(doms), 3) if doms else 0.0,
         "has_unsubscribe":     1 if _UNSUB_RE.search(text or "") else 0,
         "link_login_lure":     lure,
+        "link_text_mismatch":  link_text_mismatch(text),
         "no_links":            1 if not urls else 0,
     }
 
@@ -822,6 +870,7 @@ def attack_evidence(spoof_reasons, body_text: str, sender_domain: str = "",
     ev["reply_to_mismatch"]     = 1 if reply_to_mismatch else 0
     ev["attachment_risk"]       = 1 if attachment_risk else 0
     ev["has_urgency"]           = 1 if _URGENCY_RE.search(blob) else 0
+    ev["asks_credential"]       = 1 if _CREDENTIAL_RE.search(blob) else 0
     ev["sender_is_free_mailer"] = 1 if registrable_domain(sender_domain or "") in FREE_MAILERS else 0
     # เรียงตามสัญญา + กันตกหล่น
     missing = set(ATTACK_EVIDENCE) - set(ev)
@@ -873,15 +922,25 @@ ATTACK_TYPE_WEIGHTS = {
         "spoof_lookalike":      45,
         "spoof_brand":          40,
         "spoof_brand_related":  10,   # อาจเป็นพาร์ตเนอร์จริง ให้น้ำหนักต่ำ
-        "link_login_lure":      40,   # ลิงก์ชี้ไปหน้า login/verify = นิยามของฟิชชิ่งโดยตรง
-        "has_links":            10,   # ลดจาก 20 — "มีลิงก์" เฉย ๆ ไม่ได้แปลว่าฟิชชิ่ง
-        "has_urgency":          10,
+        # ── น้ำหนักสามตัวล่างตั้งจาก "อัตราการติดที่วัดจริง" ไม่ได้เดา (2026-08-26)
+        #    ฟิชชิ่ง / สแปม / เมลปกติ  ->  ยิ่งห่างกัน ยิ่งได้น้ำหนักมาก
+        "link_text_mismatch":   45,   # 5.4% / 1.5% / 0.0%  — เจาะจงที่สุด ไม่ติดเมลปกติเลย
+        "link_login_lure":      40,   # 5.3% / 0.9% / 0.3%
+        "asks_credential":      35,   # 3.6% / 0.4% / 0.0%
+        "has_links":            10,   # "มีลิงก์" เฉย ๆ ไม่ได้แปลว่าฟิชชิ่ง
+        # has_urgency ให้แค่ 5: วัดแล้วติดฟิชชิ่ง 16.8% สแปม 16.5% = แยกสองอย่างนี้ไม่ได้เลย
+        # (มันแยก "ร้าย vs ปกติ" ได้ 7 เท่า แต่นั่นเป็นหน้าที่ของ risk score ไม่ใช่การบอกชนิด)
+        "has_urgency":           5,
     },
     # Spam = ส่งกระจายเชิงพาณิชย์ ไม่ได้เจาะจงเหยื่อ
     # 🐛 ปรับน้ำหนัก 2026-08-26 หลังวัดบน phishing_pot 8,612 ฉบับ (ฟิชชิ่งล้วน)
     #    ชุดแรกให้ many_links/all_links_external/link_repeat_domain -> จัดเป็น Spam ถึง 62.4%
     #    เพราะสัญญาณพวกนั้น "ไม่ได้เฉพาะเจาะจงกับสแปม" ฟิชชิ่งก็ลิงก์เยอะและซ้ำโดเมนเหมือนกัน
     #    เหลือไว้เฉพาะสิ่งที่เป็นของเมลกระจายจริง ๆ: ปุ่มยกเลิกรับข่าว + ลิงก์ไปหลายโดเมนต่างกัน
+    # 🔍 ผลวัด 2026-08-26: สแปม "ไม่มีสัญญาณบวกที่เป็นของตัวเอง" เลย
+    #    has_unsubscribe ติดฟิชชิ่ง 32.6% แต่ติดสแปม 26.3% — ติดในฟิชชิ่งมากกว่าด้วยซ้ำ
+    #    เพราะฟิชชิ่งลอกเทมเพลตจดหมายข่าวมาใช้ทั้งดุ้น
+    #    -> นิยาม Spam ว่า "เมลกระจายที่ไม่มีสัญญาณฟิชชิ่ง" คือพึ่งน้ำหนักติดลบเป็นหลัก
     "Spam (High-Risk Source)": {
         "has_unsubscribe":      30,   # เมลกระจายเชิงพาณิชย์ต้องมีปุ่มยกเลิกตามกฎหมาย
         "many_link_domains":    25,   # ลิงก์ไปหลายโดเมนต่างกัน = โฆษณาหลายเจ้า (ฟิชชิ่งมักโดเมนเดียว)
@@ -892,6 +951,8 @@ ATTACK_TYPE_WEIGHTS = {
         #    ถ้าไม่หักคะแนน สแปมจะกินเคสฟิชชิ่งไปเยอะ (39.5% บน phishing_pot ซึ่งเป็นฟิชชิ่งล้วน)
         "spoof_any":           -40,
         "link_login_lure":     -30,
+        "link_text_mismatch":  -35,   # ร้านค้าจริงไม่ต้องปิดบังปลายทางของลิงก์
+        "asks_credential":     -30,   # คนขายของไม่ขอรหัสผ่านลูกค้า
     },
 }
 
