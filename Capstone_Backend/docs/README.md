@@ -48,6 +48,7 @@
 | `NOTE_for_gateway_p2.md` | P2 — ตัด `dmarc_fail` ออกจาก feature ✅ |
 | `NOTE_for_gateway.md` | เปลี่ยน contract: AI ตอบ `raw_signals` กลับ Gateway ตรงๆ ✅ |
 | `NOTE_for_92*.md` (5 ไฟล์) | `abuseipdb_score` rename · `has_malware` · SPF/DKIM/DMARC จริงต่อฉบับ · `email_hash` · ลด FP |
+| [`references/`](references/) | 📚 **เอกสารอ้างอิงสำหรับตอบอาจารย์** — สมการมาจากไหน อะไรมีอ้างอิง อะไรเป็นของเราเอง |
 | `stage1_wrote_shortcut.json` | 🔴 **ต้นตอ FP ตัวจริง** — โมเดลใช้บรรทัด `X wrote:` เป็นสัญญาณว่าปลอดภัย · เติม 1 บรรทัดทำให้สแปมหลุด 43.5% |
 | `REPLY2_model_info_ready.md` · `REPLY3_rollback_endpoints.md` · `REPLY_to_dashboard_retrain.md` | `/model/info`, `/model/history`, `/model/activate`, เรื่อง retrain ✅ |
 | `REPLY_to_gateway_auth.md` | ใช้ผล SPF/DKIM/DMARC ที่ PMG ส่งมา ✅ |
